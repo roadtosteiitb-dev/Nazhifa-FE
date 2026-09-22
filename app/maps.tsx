@@ -33,6 +33,7 @@ import {
   PropertyFacilityLayerType,
   GIS_RISK_COLORS,
   GisRiskLevel,
+  DISASTER_LAYERS,
 } from "../data/riskData";
 import { fetchActiveLayers, LayerType, DisasterPolygon } from "../services/LayerService";
 import { FloatingMapControls } from "../components/maps/FloatingMapControls";
@@ -43,6 +44,31 @@ import type { Land } from "../contexts/LandContext";
 const { height: screenHeight } = Dimensions.get("window");
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = screenHeight * 0.72;
+
+/** disasterType → base color, sourced from DISASTER_LAYERS (flood = blue, extreme_weather = purple, ...) */
+const DISASTER_COLOR_MAP: Record<string, string> = Object.fromEntries(
+  DISASTER_LAYERS.map((layer) => [layer.id, layer.color])
+);
+
+function hexToRgba(hex: string, alpha: number): string {
+  const parsed = hex.replace("#", "");
+  const r = parseInt(parsed.substring(0, 2), 16);
+  const g = parseInt(parsed.substring(2, 4), 16);
+  const b = parseInt(parsed.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** Resolve a polygon's map colors from its disasterType, overriding whatever the backend sends. */
+function getDisasterPolygonColors(poly: DisasterPolygon): {
+  fillColor: string;
+  strokeColor: string;
+} {
+  const base = DISASTER_COLOR_MAP[poly.disasterType] ?? "#6B7280";
+  return {
+    fillColor: hexToRgba(base, 0.35),
+    strokeColor: base,
+  };
+}
 
 /* =============================================
    PROPERTY CARD COMPONENT (UI preserved exactly)
@@ -416,16 +442,19 @@ export default function HomeGuestMap() {
           />
         )}
 
-        {/* RENDER DISASTER POLYGONS — only from backend, NO fallback */}
-        {disasterPolygons.map((poly) => (
-          <Polygon
-            key={poly.id}
-            coordinates={poly.coordinates}
-            fillColor={poly.fillColor}
-            strokeColor={poly.strokeColor}
-            strokeWidth={2}
-          />
-        ))}
+        {/* RENDER DISASTER POLYGONS — colored by disasterType (flood = blue, extreme_weather = purple, etc.) */}
+        {disasterPolygons.map((poly) => {
+          const { fillColor, strokeColor } = getDisasterPolygonColors(poly);
+          return (
+            <Polygon
+              key={poly.id}
+              coordinates={poly.coordinates}
+              fillColor={fillColor}
+              strokeColor={strokeColor}
+              strokeWidth={2}
+            />
+          );
+        })}
 
         {/* RADIUS CIRCLE */}
         {userLoc && (
