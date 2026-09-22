@@ -1,6 +1,10 @@
 /**
  * LayerService – loads disaster polygon layers from Laravel + PostGIS.
- * Implements an in-memory cache so each layer type is fetched only once per session.
+ * Layers are fetched per-viewport (bbox) so huge tables (extreme_weather,
+ * drought, liquefaction — tens of thousands of rows) never have to be pulled
+ * or simplified in full; the server only queries what's near the given bbox.
+ * Implements an in-memory cache keyed by layerType + a coarse grid-snapped
+ * bbox tile, so panning within the same ~5.5km tile reuses the cached result.
  * Supports AbortController to cancel in-flight requests when layers change rapidly.
  */
 import api from "./apiClient";
@@ -20,8 +24,30 @@ export interface DisasterPolygon {
   strokeColor: string;
 }
 
-// In-memory cache: layerType -> polygon array
+export interface BBox {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+// In-memory cache: "layerType:snappedBBoxKey" -> polygon array
 const _cache = new Map<string, DisasterPolygon[]>();
+
+/** Must match the backend's GRID_SIZE in LayerController so tile keys line up. */
+const GRID_SIZE = 0.05;
+
+function snapBBoxKey(bbox?: BBox): string {
+  if (!bbox) return "all";
+  const snap = (v: number, roundUp: boolean) =>
+    (roundUp ? Math.ceil(v / GRID_SIZE) : Math.floor(v / GRID_SIZE)) * GRID_SIZE;
+  return [
+    snap(bbox.minLat, false),
+    snap(bbox.minLng, false),
+    snap(bbox.maxLat, true),
+    snap(bbox.maxLng, true),
+  ].join(",");
+}
 
 /** Valid layer types accepted by GET /api/layers/{type} */
 export type LayerType =
@@ -33,21 +59,33 @@ export type LayerType =
   | "extreme_weather";
 
 /**
- * Fetch polygons for a single disaster layer.
- * Results are cached in memory after the first successful fetch.
+ * Fetch polygons for a single disaster layer within (optionally) a map viewport.
+ * Results are cached in memory per layer+tile after the first successful fetch.
  * Pass an AbortSignal to support request cancellation.
  */
 export async function fetchLayer(
   type: LayerType,
+  bbox?: BBox,
   signal?: AbortSignal
 ): Promise<DisasterPolygon[]> {
-  if (_cache.has(type)) {
-    return _cache.get(type)!;
+  const cacheKey = `${type}:${snapBBoxKey(bbox)}`;
+  if (_cache.has(cacheKey)) {
+    return _cache.get(cacheKey)!;
   }
 
-  const res = await api.get(`/layers/${type}`, { signal });
+  const res = await api.get(`/layers/${type}`, {
+    signal,
+    params: bbox
+      ? {
+          min_lat: bbox.minLat,
+          max_lat: bbox.maxLat,
+          min_lng: bbox.minLng,
+          max_lng: bbox.maxLng,
+        }
+      : undefined,
+  });
   const data = res.data as DisasterPolygon[];
-  _cache.set(type, data);
+  _cache.set(cacheKey, data);
   return data;
 }
 
@@ -57,10 +95,11 @@ export async function fetchLayer(
  */
 export async function fetchActiveLayers(
   types: LayerType[],
+  bbox?: BBox,
   signal?: AbortSignal
 ): Promise<DisasterPolygon[]> {
   const results = await Promise.allSettled(
-    types.map((type) => fetchLayer(type, signal))
+    types.map((type) => fetchLayer(type, bbox, signal))
   );
 
   const polygons: DisasterPolygon[] = [];

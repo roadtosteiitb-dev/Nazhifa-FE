@@ -21,6 +21,7 @@ import MapView, {
   Polygon,
   UrlTile,
   PROVIDER_GOOGLE,
+  Region,
 } from "react-native-maps";
 import * as Location from "expo-location";
 import Slider from "@react-native-community/slider";
@@ -176,8 +177,21 @@ export default function HomeGuestMap() {
   const [layerError, setLayerError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  /* Fetch disaster polygons from backend — using LayerService cache */
-  const loadLayers = useCallback(async (layers: DisasterType[]) => {
+  /* Currently visible map region, seeded with a sensible default so a bbox is
+     always available for the very first fetch (extreme_weather/drought/
+     liquefaction have 8k-23k rows each — fetching them without a viewport
+     bbox means pulling/simplifying the entire table, which is what made the
+     dev server hang before). Refined by onRegionChangeComplete once the map
+     actually renders / GPS resolves. */
+  const [visibleRegion, setVisibleRegion] = useState<Region>({
+    latitude: -7.76,
+    longitude: 110.377,
+    latitudeDelta: 0.08,
+    longitudeDelta: 0.08,
+  });
+
+  /* Fetch disaster polygons from backend for a given viewport — using LayerService cache */
+  const loadLayers = useCallback(async (layers: DisasterType[], region: Region) => {
     // Cancel any in-flight request
     abortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -193,8 +207,19 @@ export default function HomeGuestMap() {
     setIsLayerLoading(true);
     setLayerError(null);
 
+    // Fetch a viewport padded well beyond what's on screen (2x the visible
+    // span each side) so small pans don't need an immediate refetch.
+    const latPad = region.latitudeDelta * 1.5;
+    const lngPad = region.longitudeDelta * 1.5;
+    const bbox = {
+      minLat: region.latitude - region.latitudeDelta / 2 - latPad,
+      maxLat: region.latitude + region.latitudeDelta / 2 + latPad,
+      minLng: region.longitude - region.longitudeDelta / 2 - lngPad,
+      maxLng: region.longitude + region.longitudeDelta / 2 + lngPad,
+    };
+
     try {
-      const polygons = await fetchActiveLayers(layers as LayerType[], controller.signal);
+      const polygons = await fetchActiveLayers(layers as LayerType[], bbox, controller.signal);
       if (!controller.signal.aborted) {
         setDisasterPolygons(polygons);
       }
@@ -215,12 +240,18 @@ export default function HomeGuestMap() {
     }
   }, []);
 
+  // Debounce region-driven refetches so a pan/zoom gesture (which can fire
+  // onRegionChangeComplete a couple times in quick succession) triggers one
+  // network call, not several.
   useEffect(() => {
-    loadLayers(activeDisasterLayers);
+    const timer = setTimeout(() => {
+      loadLayers(activeDisasterLayers, visibleRegion);
+    }, 350);
     return () => {
+      clearTimeout(timer);
       abortControllerRef.current?.abort();
     };
-  }, [activeDisasterLayers, loadLayers]);
+  }, [activeDisasterLayers, visibleRegion, loadLayers]);
 
   /* DRAGGABLE BOTTOM SHEET ANIMATION */
   const sheetHeight = useRef(new Animated.Value(screenHeight * 0.42)).current;
@@ -351,6 +382,47 @@ export default function HomeGuestMap() {
 
   const activeLayersTotalCount = activePropertyLayers.length + activeDisasterLayers.length;
 
+  /* Precompute each polygon's bounding box once per data load — cheap to
+     compare against the visible region on every pan/zoom, instead of
+     re-scanning every coordinate each time. */
+  const polygonsWithBBox = useMemo(() => {
+    return disasterPolygons.map((poly) => {
+      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+      for (const c of poly.coordinates) {
+        if (c.latitude < minLat) minLat = c.latitude;
+        if (c.latitude > maxLat) maxLat = c.latitude;
+        if (c.longitude < minLng) minLng = c.longitude;
+        if (c.longitude > maxLng) maxLng = c.longitude;
+      }
+      return { poly, bbox: { minLat, maxLat, minLng, maxLng } };
+    });
+  }, [disasterPolygons]);
+
+  /* Viewport culling: only render polygons whose bounding box intersects the
+     currently visible map region (plus a margin so panning slightly doesn't
+     pop shapes in/out). This is what actually keeps zoom/pan smooth — react-
+     native-maps has to redraw every rendered <Polygon> on each camera move,
+     so limiting that count to what's on screen matters far more than trimming
+     the underlying dataset size. */
+  const visibleDisasterPolygons = useMemo(() => {
+    const latMargin = visibleRegion.latitudeDelta * 0.75;
+    const lngMargin = visibleRegion.longitudeDelta * 0.75;
+    const minLat = visibleRegion.latitude - visibleRegion.latitudeDelta / 2 - latMargin;
+    const maxLat = visibleRegion.latitude + visibleRegion.latitudeDelta / 2 + latMargin;
+    const minLng = visibleRegion.longitude - visibleRegion.longitudeDelta / 2 - lngMargin;
+    const maxLng = visibleRegion.longitude + visibleRegion.longitudeDelta / 2 + lngMargin;
+
+    return polygonsWithBBox
+      .filter(
+        ({ bbox }) =>
+          bbox.maxLat >= minLat &&
+          bbox.minLat <= maxLat &&
+          bbox.maxLng >= minLng &&
+          bbox.minLng <= maxLng
+      )
+      .map((p) => p.poly);
+  }, [polygonsWithBBox, visibleRegion]);
+
   return (
     <View style={{ flex: 1, backgroundColor: "#F8FAFC" }}>
       {/* TOP SEARCH BAR */}
@@ -432,6 +504,7 @@ export default function HomeGuestMap() {
         mapType={baseMap === "satellite" ? "satellite" : "standard"}
         style={StyleSheet.absoluteFillObject}
         showsUserLocation
+        onRegionChangeComplete={setVisibleRegion}
       >
         {/* OSM TILE LAYER IF SELECTED */}
         {baseMap === "osm" && (
@@ -442,8 +515,9 @@ export default function HomeGuestMap() {
           />
         )}
 
-        {/* RENDER DISASTER POLYGONS — colored by disasterType (flood = blue, extreme_weather = purple, etc.) */}
-        {disasterPolygons.map((poly) => {
+        {/* RENDER DISASTER POLYGONS — colored by disasterType (flood = blue, extreme_weather = purple, etc.),
+            culled to only what's in/near the current viewport so pan/zoom stays smooth. */}
+        {visibleDisasterPolygons.map((poly) => {
           const { fillColor, strokeColor } = getDisasterPolygonColors(poly);
           return (
             <Polygon
@@ -566,7 +640,7 @@ export default function HomeGuestMap() {
           <Ionicons name="warning-outline" size={14} color="#DC2626" />
           <Text style={styles.errorBannerText}>{layerError}</Text>
           <TouchableOpacity
-            onPress={() => loadLayers(activeDisasterLayers)}
+            onPress={() => loadLayers(activeDisasterLayers, visibleRegion)}
             style={styles.retryBtn}
           >
             <Text style={styles.retryBtnText}>Retry</Text>
