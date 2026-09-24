@@ -484,7 +484,7 @@ export default function ProductDetail() {
 
                 <TouchableOpacity
                   style={styles.fullscreenMapBtn}
-                  onPress={() => router.push("/maps")}
+                  onPress={() => router.push({ pathname: "/maps", params: { focusId: String(property.id) } })}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="expand-outline" size={14} color="#FFFFFF" />
@@ -638,7 +638,7 @@ export default function ProductDetail() {
 
                     <TouchableOpacity
                       style={styles.viewOnMapBtn}
-                      onPress={() => router.push("/maps")}
+                      onPress={() => router.push({ pathname: "/maps", params: { focusId: String(property.id) } })}
                       activeOpacity={0.8}
                     >
                       <Text style={styles.viewOnMapText}>View on Map</Text>

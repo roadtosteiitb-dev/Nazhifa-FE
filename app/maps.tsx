@@ -20,7 +20,7 @@ import MapView, {
 import * as Location from "expo-location";
 import Slider from "@react-native-community/slider";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import Supercluster from "supercluster";
 
 import {
@@ -205,6 +205,10 @@ function getDisasterPolygonColors(poly: DisasterPolygon): {
 export default function HomeGuestMap() {
   const mapRef = useRef<MapView>(null);
   const router = useRouter();
+  // ?focusId=<landId> — opened from a property's "Fullscreen Map": fly there and open its popup
+  const { focusId } = useLocalSearchParams<{ focusId?: string }>();
+  const [mapReady, setMapReady] = useState(false);
+  const handledFocusId = useRef<string | null>(null);
 
   // ── Property data from LandContext (already fetches from GET /api/lands) ──
   const { lands } = useLands();
@@ -420,10 +424,13 @@ export default function HomeGuestMap() {
       };
       setUserLoc(coords);
 
-      mapRef.current?.animateToRegion(
-        { ...coords, latitudeDelta: 0.08, longitudeDelta: 0.08 },
-        800
-      );
+      // Don't pull the camera away from a property we were asked to focus on
+      if (!focusId) {
+        mapRef.current?.animateToRegion(
+          { ...coords, latitudeDelta: 0.08, longitudeDelta: 0.08 },
+          800
+        );
+      }
     })();
   }, []);
 
@@ -518,6 +525,14 @@ export default function HomeGuestMap() {
     },
     [mappableProperties]
   );
+
+  // Deep-link focus: wait until the map is ready and the property is loaded, then open it once
+  useEffect(() => {
+    if (!focusId || !mapReady || handledFocusId.current === focusId) return;
+    if (!mappableProperties.some((l) => l.id === focusId)) return; // lands not loaded yet
+    handledFocusId.current = focusId;
+    focusProperty(focusId);
+  }, [focusId, mapReady, mappableProperties, focusProperty]);
 
   useEffect(() => {
     setPropertyMarkersTrack(true);
@@ -645,6 +660,7 @@ export default function HomeGuestMap() {
         customMapStyle={baseMap === "standard" ? CLEAN_MAP_STYLE : []}
         style={StyleSheet.absoluteFillObject}
         showsUserLocation
+        onMapReady={() => setMapReady(true)}
         onRegionChangeComplete={setVisibleRegion}
         onPress={(e) => {
           // iOS also reports marker taps here — only close on a real map tap
