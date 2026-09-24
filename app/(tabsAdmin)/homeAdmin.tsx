@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -10,15 +10,27 @@ import {
   Alert,
   Modal,
   Dimensions,
+  RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTranslation } from "react-i18next";
 import { useLands, Land } from "../../contexts/LandContext";
+import { fetchUsers, ApiUser } from "../../services/UserService";
+import { fetchComplaints, ApiComplaint } from "../../services/ComplaintService";
+import { exportReport, toDateStr, ExportFormat, ReportKind } from "../../utils/reportExport";
 
 const { width } = Dimensions.get("window");
+
+// Inclusive date-range check on an ISO/date string; rows without a date are excluded
+const inRange = (value: string | null | undefined, start: string, end: string) => {
+  if (!value) return false;
+  const day = value.slice(0, 10);
+  return (!start || day >= start) && (!end || day <= end);
+};
 const CARD_WIDTH = (width - 52) / 2;
 
 const PRIMARY = "#2E7D32";
@@ -45,7 +57,39 @@ export default function HomeAdmin() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { t } = useTranslation();
-  const { lands = [], setLands, addNotification } = useLands() || {};
+  const { lands = [], updateLandStatus, refreshLands } = useLands();
+
+  // Real data for dashboard statistics
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [complaints, setComplaints] = useState<ApiComplaint[]>([]);
+  const [statsLoaded, setStatsLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadStats = useCallback(async () => {
+    const [usersRes, complaintsRes] = await Promise.allSettled([
+      fetchUsers(),
+      fetchComplaints(),
+      refreshLands(),
+    ]);
+    if (usersRes.status === "fulfilled") setUsers(usersRes.value);
+    else console.warn("❌ Gagal memuat data pengguna:", usersRes.reason);
+    if (complaintsRes.status === "fulfilled") setComplaints(complaintsRes.value);
+    else console.warn("❌ Gagal memuat data keluhan:", complaintsRes.reason);
+    setStatsLoaded(true);
+  }, [refreshLands]);
+
+  // Reload every time the dashboard tab gains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadStats();
+    }, [loadStats])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadStats();
+    setRefreshing(false);
+  };
   
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
@@ -55,14 +99,14 @@ export default function HomeAdmin() {
 
   const pendingCount = lands.filter((l) => l.status === "Pending").length;
   const totalProperties = lands.length;
-  const totalUsers = 24;
-  const totalReports = 7;
+  const totalUsers = users.length;
+  const totalReports = complaints.length;
 
   const stats = [
     { label: t("homeAdmin.totalProperties"), value: totalProperties, icon: "business-outline" as const, color: PRIMARY },
-    { label: t("homeAdmin.registeredUsers"), value: totalUsers, icon: "people-outline" as const, color: "#8B5CF6" },
+    { label: t("homeAdmin.registeredUsers"), value: statsLoaded ? totalUsers : "…", icon: "people-outline" as const, color: "#8B5CF6" },
     { label: t("homeAdmin.pendingVerification"), value: pendingCount, icon: "time-outline" as const, color: WARNING },
-    { label: t("homeAdmin.reportsComplaints"), value: totalReports, icon: "document-text-outline" as const, color: DANGER },
+    { label: t("homeAdmin.reportsComplaints"), value: statsLoaded ? totalReports : "…", icon: "document-text-outline" as const, color: DANGER },
   ];
 
   const quickActions = [
@@ -106,8 +150,12 @@ export default function HomeAdmin() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showResultModal, setShowResultModal] = useState(false);
   const [selectedReportType, setSelectedReportType] = useState<ReportType>("verification");
-  const [startDate, setStartDate] = useState("2026-07-01");
-  const [endDate, setEndDate] = useState("2026-07-08");
+  // Default range: first day of this month → today
+  const [startDate, setStartDate] = useState(() => {
+    const now = new Date();
+    return toDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+  });
+  const [endDate, setEndDate] = useState(() => toDateStr(new Date()));
   const [showDropdown, setShowDropdown] = useState(false);
   const [reportData, setReportData] = useState<{ title: string; rows: { label: string; value: number; color: string }[] }>({
     title: "",
@@ -122,14 +170,11 @@ export default function HomeAdmin() {
       { text: t("homeAdmin.cancel"), style: "cancel" },
       {
         text: t("homeAdmin.approve"),
-        onPress: () => {
-          if (setLands) {
-            setLands((prev) =>
-              prev.map((item) => (item.id === id ? { ...item, status: "Approved" } : item))
-            );
-            if (addNotification) {
-              addNotification(id, targetLand.name, "approved", targetLand.owner || "Owner");
-            }
+        onPress: async () => {
+          try {
+            await updateLandStatus(id, "Approved");
+          } catch (error: any) {
+            Alert.alert("Gagal", error.response?.data?.message || "Gagal menyetujui properti.");
           }
         },
       },
@@ -141,34 +186,35 @@ export default function HomeAdmin() {
     setRejectionReasonInput("");
   };
 
-  const submitRejection = () => {
+  const submitRejection = async () => {
     if (!rejectingId) return;
-    const targetLand = lands.find((l) => l.id === rejectingId);
-    if (!targetLand) return;
 
     const reason = rejectionReasonInput.trim() || "Lokasi properti tidak sesuai.";
 
-    if (setLands) {
-      setLands((prev) =>
-        prev.map((item) =>
-          item.id === rejectingId ? { ...item, status: "Rejected", rejectionReason: reason } : item
-        )
-      );
-      if (addNotification) {
-        addNotification(rejectingId, targetLand.name, "rejected", targetLand.owner || "Owner", reason);
-      }
+    try {
+      await updateLandStatus(rejectingId, "Rejected", reason);
+      setRejectingId(null);
+      setRejectionReasonInput("");
+      Alert.alert("Sukses", "Properti berhasil ditolak.");
+    } catch (error: any) {
+      Alert.alert("Gagal", error.response?.data?.message || "Gagal menolak properti.");
     }
-
-    setRejectingId(null);
-    setRejectionReasonInput("");
-    Alert.alert("Sukses", "Properti berhasil ditolak.");
   };
 
   // Generate Report handler
   const handleGenerateReport = () => {
-    const pending = lands.filter((l) => l.status === "Pending").length;
-    const accepted = lands.filter((l) => l.status === "Approved").length;
-    const rejected = lands.filter((l) => l.status === "Rejected").length;
+    if (startDate && endDate && startDate > endDate) {
+      Alert.alert("Peringatan", "Tanggal mulai tidak boleh setelah tanggal akhir.");
+      return;
+    }
+
+    const rLands = lands.filter((l) => inRange(l.createdAt, startDate, endDate));
+    const rUsers = users.filter((u) => inRange(u.joinDate, startDate, endDate));
+    const rComplaints = complaints.filter((c) => inRange(c.date, startDate, endDate));
+
+    const pending = rLands.filter((l) => l.status === "Pending").length;
+    const accepted = rLands.filter((l) => l.status === "Approved").length;
+    const rejected = rLands.filter((l) => l.status === "Rejected").length;
 
     let data: { title: string; rows: { label: string; value: number; color: string }[] } = {
       title: "",
@@ -180,7 +226,7 @@ export default function HomeAdmin() {
         data = {
           title: t("homeAdmin.propertyReport"),
           rows: [
-            { label: t("homeAdmin.totalProperties"), value: totalProperties, color: PRIMARY },
+            { label: t("homeAdmin.totalProperties"), value: rLands.length, color: PRIMARY },
             { label: t("homeAdmin.approvedProperties"), value: accepted, color: SUCCESS },
             { label: t("homeAdmin.pendingVerification"), value: pending, color: WARNING },
             { label: t("homeAdmin.rejectedProperties"), value: rejected, color: DANGER },
@@ -191,7 +237,7 @@ export default function HomeAdmin() {
         data = {
           title: t("homeAdmin.verificationReport"),
           rows: [
-            { label: t("homeAdmin.totalProperties"), value: totalProperties, color: PRIMARY },
+            { label: t("homeAdmin.totalProperties"), value: rLands.length, color: PRIMARY },
             { label: t("homeAdmin.approved"), value: accepted, color: SUCCESS },
             { label: t("homeAdmin.pending"), value: pending, color: WARNING },
             { label: t("homeAdmin.rejected"), value: rejected, color: DANGER },
@@ -202,11 +248,11 @@ export default function HomeAdmin() {
         data = {
           title: t("homeAdmin.userReport"),
           rows: [
-            { label: t("homeAdmin.totalRegisteredUsers"), value: totalUsers, color: PRIMARY },
-            { label: t("homeAdmin.activeUsers"), value: 18, color: SUCCESS },
-            { label: t("homeAdmin.inactiveUsers"), value: 6, color: DANGER },
-            { label: t("homeAdmin.propertyOwners"), value: 10, color: "#8B5CF6" },
-            { label: t("homeAdmin.buyers"), value: 14, color: "#0891B2" },
+            { label: t("homeAdmin.totalRegisteredUsers"), value: rUsers.length, color: PRIMARY },
+            { label: t("homeAdmin.activeUsers"), value: rUsers.filter((u) => u.status === "active").length, color: SUCCESS },
+            { label: t("homeAdmin.inactiveUsers"), value: rUsers.filter((u) => u.status === "inactive").length, color: DANGER },
+            { label: t("homeAdmin.propertyOwners"), value: rUsers.filter((u) => u.role === "owner").length, color: "#8B5CF6" },
+            { label: t("homeAdmin.buyers"), value: rUsers.filter((u) => u.role === "buyer").length, color: "#0891B2" },
           ],
         };
         break;
@@ -214,10 +260,10 @@ export default function HomeAdmin() {
         data = {
           title: t("homeAdmin.complaintReport"),
           rows: [
-            { label: t("homeAdmin.totalComplaints"), value: totalReports, color: PRIMARY },
-            { label: t("homeAdmin.open"), value: 2, color: WARNING },
-            { label: t("homeAdmin.inProgress"), value: 2, color: "#0891B2" },
-            { label: t("homeAdmin.resolved"), value: 3, color: SUCCESS },
+            { label: t("homeAdmin.totalComplaints"), value: rComplaints.length, color: PRIMARY },
+            { label: t("homeAdmin.open"), value: rComplaints.filter((c) => c.status === "open").length, color: WARNING },
+            { label: t("homeAdmin.inProgress"), value: rComplaints.filter((c) => c.status === "in_progress").length, color: "#0891B2" },
+            { label: t("homeAdmin.resolved"), value: rComplaints.filter((c) => c.status === "resolved").length, color: SUCCESS },
           ],
         };
         break;
@@ -228,13 +274,47 @@ export default function HomeAdmin() {
     setShowResultModal(true);
   };
 
-  const handleDownload = (format: string) => {
-    Alert.alert(t("homeAdmin.success"), `${t("homeAdmin.downloadSuccess")} ${format}.`);
+  const [downloading, setDownloading] = useState<ExportFormat | null>(null);
+
+  const REPORT_KIND: Record<ReportType, ReportKind> = {
+    property: "property",
+    verification: "verification",
+    user: "users",
+    complaint: "complaints",
+  };
+
+  const handleDownload = async (format: ExportFormat) => {
+    if (downloading) return;
+    const [sy, sm, sd] = startDate.split("-").map(Number);
+    const [ey, em, ed] = endDate.split("-").map(Number);
+    const range = { start: new Date(sy, sm - 1, sd), end: new Date(ey, em - 1, ed) };
+    if (isNaN(range.start.getTime()) || isNaN(range.end.getTime())) {
+      Alert.alert("Peringatan", "Format tanggal harus YYYY-MM-DD.");
+      return;
+    }
+    try {
+      setDownloading(format);
+      const result = await exportReport(REPORT_KIND[selectedReportType], format, range, { lands, users, complaints });
+      if (result.status === "saved") {
+        Alert.alert(t("homeAdmin.success"), `Laporan tersimpan sebagai:\n${result.fileName}`);
+      } else if (result.status === "cancelled") {
+        Alert.alert("Dibatalkan", "Pilih folder penyimpanan untuk mengunduh laporan.");
+      }
+    } catch (error: any) {
+      console.error("❌ Export report error:", error);
+      Alert.alert("Gagal", error?.message || "Gagal membuat laporan.");
+    } finally {
+      setDownloading(null);
+    }
   };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[PRIMARY]} tintColor={PRIMARY} />}
+      >
         {/* ── Header ── */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -569,18 +649,20 @@ export default function HomeAdmin() {
             <View style={styles.downloadRow}>
               <TouchableOpacity
                 style={styles.downloadPdfBtn}
-                onPress={() => handleDownload("PDF")}
+                onPress={() => handleDownload("pdf")}
+                disabled={!!downloading}
                 activeOpacity={0.85}
               >
-                <Ionicons name="document" size={18} color="#fff" />
+                {downloading === "pdf" ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="document" size={18} color="#fff" />}
                 <Text style={styles.downloadBtnText}>{t("homeAdmin.downloadPdf")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.downloadExcelBtn}
-                onPress={() => handleDownload("Excel")}
+                onPress={() => handleDownload("excel")}
+                disabled={!!downloading}
                 activeOpacity={0.85}
               >
-                <Ionicons name="grid" size={18} color="#fff" />
+                {downloading === "excel" ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="grid" size={18} color="#fff" />}
                 <Text style={styles.downloadBtnText}>{t("homeAdmin.downloadExcel")}</Text>
               </TouchableOpacity>
             </View>

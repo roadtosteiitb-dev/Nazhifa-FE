@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -6,10 +6,18 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Modal,
+  Platform,
+  ActivityIndicator,
 } from "react-native";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useLands } from "../../contexts/LandContext";
+import { fetchUsers, ApiUser } from "../../services/UserService";
+import { fetchComplaints, ApiComplaint } from "../../services/ComplaintService";
+import { exportReport, formatDate, ExportFormat } from "../../utils/reportExport";
 
 const PRIMARY = "#2E7D32";
 const SUCCESS = "#16A34A";
@@ -36,28 +44,115 @@ const dateRanges = [
   { label: "Custom Range", value: "custom" },
 ];
 
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+// Resolve a preset range key to concrete start/end dates (end = today)
+const presetRange = (value: string): { start: Date; end: Date } | null => {
+  const end = startOfDay(new Date());
+  const start = new Date(end);
+  switch (value) {
+    case "7d": start.setDate(start.getDate() - 6); break;
+    case "30d": start.setDate(start.getDate() - 29); break;
+    case "3m": start.setMonth(start.getMonth() - 3); break;
+    case "1y": start.setFullYear(start.getFullYear() - 1); break;
+    default: return null;
+  }
+  return { start, end };
+};
+
+type PickerTarget = "start" | "end" | null;
+
 export default function ReportScreen() {
   const router = useRouter();
   const [selectedType, setSelectedType] = useState<ReportType | null>(null);
   const [selectedRange, setSelectedRange] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingFormat, setGeneratingFormat] = useState<ExportFormat | null>(null);
+  const isGenerating = generatingFormat !== null;
 
-  const canGenerate = selectedType && selectedRange;
+  // Real data for the report
+  const { lands, refreshLands } = useLands();
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [complaints, setComplaints] = useState<ApiComplaint[]>([]);
 
-  const handleGenerate = (format: "pdf" | "excel") => {
-    if (!canGenerate) {
-      Alert.alert("Incomplete", "Please select a report type and date range.");
+  useEffect(() => {
+    refreshLands();
+    fetchUsers().then(setUsers).catch((e) => console.warn("❌ Gagal memuat pengguna:", e));
+    fetchComplaints().then(setComplaints).catch((e) => console.warn("❌ Gagal memuat keluhan:", e));
+  }, [refreshLands]);
+
+  // Custom range
+  const [customStart, setCustomStart] = useState<Date | null>(null);
+  const [customEnd, setCustomEnd] = useState<Date | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
+  const [iosDraft, setIosDraft] = useState<Date>(new Date());
+
+  const isCustom = selectedRange === "custom";
+  const activeRange =
+    isCustom
+      ? customStart && customEnd ? { start: customStart, end: customEnd } : null
+      : selectedRange ? presetRange(selectedRange) : null;
+
+  const canGenerate = !!selectedType && !!activeRange;
+
+  const today = startOfDay(new Date());
+
+  const openPicker = (target: "start" | "end") => {
+    const current = target === "start" ? customStart : customEnd;
+    setIosDraft(current ?? (target === "end" && customStart ? customStart : today));
+    setPickerTarget(target);
+  };
+
+  const applyDate = (target: "start" | "end", date: Date) => {
+    const d = startOfDay(date);
+    if (target === "start") {
+      setCustomStart(d);
+      // Keep the range valid: push the end date forward if needed
+      if (customEnd && customEnd < d) setCustomEnd(d);
+    } else {
+      if (customStart && d < customStart) {
+        Alert.alert("Tanggal tidak valid", "Tanggal akhir tidak boleh sebelum tanggal mulai.");
+        return;
+      }
+      setCustomEnd(d);
+    }
+  };
+
+  const onAndroidChange = (event: DateTimePickerEvent, date?: Date) => {
+    const target = pickerTarget;
+    setPickerTarget(null);
+    if (event.type === "set" && date && target) applyDate(target, date);
+  };
+
+  const confirmIos = () => {
+    if (pickerTarget) applyDate(pickerTarget, iosDraft);
+    setPickerTarget(null);
+  };
+
+  const pickerMin = pickerTarget === "end" && customStart ? customStart : undefined;
+
+  const handleGenerate = async (format: ExportFormat) => {
+    if (!canGenerate || !selectedType || !activeRange) {
+      Alert.alert(
+        "Incomplete",
+        isCustom ? "Pilih tanggal mulai dan tanggal akhir." : "Please select a report type and date range."
+      );
       return;
     }
-    setIsGenerating(true);
-    setTimeout(() => {
-      setIsGenerating(false);
-      Alert.alert(
-        "Report Generated",
-        `Your ${reportTypes.find((r) => r.type === selectedType)?.label} report (${format.toUpperCase()}) has been generated successfully.`,
-        [{ text: "OK" }]
-      );
-    }, 1500);
+    try {
+      setGeneratingFormat(format);
+      const result = await exportReport(selectedType, format, activeRange, { lands, users, complaints });
+      if (result.status === "saved") {
+        Alert.alert("Berhasil", `Laporan tersimpan sebagai:\n${result.fileName}`);
+      } else if (result.status === "cancelled") {
+        Alert.alert("Dibatalkan", "Pilih folder penyimpanan untuk mengunduh laporan.");
+      }
+      // "shared": the share sheet already gave the user feedback
+    } catch (error: any) {
+      console.error("❌ Export report error:", error);
+      Alert.alert("Gagal", error?.message || "Gagal membuat laporan.");
+    } finally {
+      setGeneratingFormat(null);
+    }
   };
 
   const selectedTypeInfo = reportTypes.find((r) => r.type === selectedType);
@@ -126,6 +221,73 @@ export default function ReportScreen() {
           })}
         </View>
 
+        {/* Custom Range pickers */}
+        {isCustom && (
+          <View style={styles.customRangeRow}>
+            {(["start", "end"] as const).map((target) => {
+              const value = target === "start" ? customStart : customEnd;
+              return (
+                <TouchableOpacity
+                  key={target}
+                  style={[styles.dateField, value && { borderColor: PRIMARY }]}
+                  onPress={() => openPicker(target)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.dateFieldLabel}>{target === "start" ? "Dari Tanggal" : "Sampai Tanggal"}</Text>
+                  <View style={styles.dateFieldValueRow}>
+                    <Ionicons name="calendar-outline" size={16} color={value ? PRIMARY : TEXT_SECONDARY} />
+                    <Text style={[styles.dateFieldValue, !value && { color: TEXT_SECONDARY }]}>
+                      {value ? formatDate(value) : "Pilih tanggal"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Android: native dialog */}
+        {pickerTarget && Platform.OS === "android" && (
+          <DateTimePicker
+            value={(pickerTarget === "start" ? customStart : customEnd) ?? pickerMin ?? today}
+            mode="date"
+            display="default"
+            minimumDate={pickerMin}
+            maximumDate={today}
+            onChange={onAndroidChange}
+          />
+        )}
+
+        {/* iOS: bottom sheet */}
+        {Platform.OS === "ios" && (
+          <Modal transparent visible={!!pickerTarget} animationType="slide" onRequestClose={() => setPickerTarget(null)}>
+            <View style={styles.modalBackdrop}>
+              <View style={styles.modalSheet}>
+                <View style={styles.modalHeader}>
+                  <TouchableOpacity onPress={() => setPickerTarget(null)}>
+                    <Text style={styles.modalCancel}>Batal</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.modalTitle}>
+                    {pickerTarget === "start" ? "Dari Tanggal" : "Sampai Tanggal"}
+                  </Text>
+                  <TouchableOpacity onPress={confirmIos}>
+                    <Text style={styles.modalDone}>Pilih</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={iosDraft}
+                  mode="date"
+                  display="inline"
+                  minimumDate={pickerMin}
+                  maximumDate={today}
+                  onChange={(_, date) => date && setIosDraft(date)}
+                  accentColor={PRIMARY}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
+
         {/* Preview Summary */}
         {canGenerate && (
           <View style={styles.previewCard}>
@@ -134,9 +296,9 @@ export default function ReportScreen() {
               <Text style={styles.previewTitle}>Report Summary</Text>
               <Text style={styles.previewLine}>Type: {selectedTypeInfo?.label}</Text>
               <Text style={styles.previewLine}>
-                Period: {dateRanges.find((d) => d.value === selectedRange)?.label}
+                Period: {activeRange && `${formatDate(activeRange.start)} – ${formatDate(activeRange.end)}`}
               </Text>
-              <Text style={styles.previewLine}>Format: PDF / Excel</Text>
+              <Text style={styles.previewLine}>Format: PDF / Excel (.xlsx)</Text>
             </View>
           </View>
         )}
@@ -149,8 +311,11 @@ export default function ReportScreen() {
             onPress={() => handleGenerate("pdf")}
             disabled={!canGenerate || isGenerating}
           >
-            {isGenerating ? (
-              <Text style={styles.exportBtnText}>Generating...</Text>
+            {generatingFormat === "pdf" ? (
+              <>
+                <ActivityIndicator size="small" color={DANGER} />
+                <Text style={[styles.exportBtnText, { color: DANGER }]}>Membuat...</Text>
+              </>
             ) : (
               <>
                 <Ionicons name="document" size={20} color={canGenerate ? DANGER : TEXT_SECONDARY} />
@@ -164,8 +329,11 @@ export default function ReportScreen() {
             onPress={() => handleGenerate("excel")}
             disabled={!canGenerate || isGenerating}
           >
-            {isGenerating ? (
-              <Text style={styles.exportBtnText}>Generating...</Text>
+            {generatingFormat === "excel" ? (
+              <>
+                <ActivityIndicator size="small" color={SUCCESS} />
+                <Text style={[styles.exportBtnText, { color: SUCCESS }]}>Membuat...</Text>
+              </>
             ) : (
               <>
                 <Ionicons name="grid" size={20} color={canGenerate ? SUCCESS : TEXT_SECONDARY} />
@@ -224,6 +392,25 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#E2E8F0",
   },
   rangeText: { fontSize: 14, color: TEXT_DARK },
+
+  // Custom range
+  customRangeRow: { flexDirection: "row", gap: 10, paddingHorizontal: 20, marginTop: 12 },
+  dateField: {
+    flex: 1, backgroundColor: "#F8FAFC", borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: "#E2E8F0",
+  },
+  dateFieldLabel: { fontSize: 11, color: TEXT_SECONDARY, fontWeight: "600" },
+  dateFieldValueRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+  dateFieldValue: { fontSize: 14, fontWeight: "700", color: TEXT_DARK },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  modalSheet: { backgroundColor: "#FFFFFF", borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
+  modalHeader: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: GRAY_BG,
+  },
+  modalTitle: { fontSize: 15, fontWeight: "700", color: TEXT_DARK },
+  modalCancel: { fontSize: 15, color: TEXT_SECONDARY },
+  modalDone: { fontSize: 15, fontWeight: "700", color: PRIMARY },
 
   // Preview
   previewCard: {
