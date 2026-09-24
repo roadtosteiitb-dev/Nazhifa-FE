@@ -4,10 +4,12 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useChat } from '../../contexts/ChatContext';
 
 export default function PetaniLayout() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const { totalUnread } = useChat();
 
   return (
     <Tabs
@@ -57,6 +59,8 @@ export default function PetaniLayout() {
         name="chat"
         options={{
           title: 'Chat',
+          tabBarBadge: totalUnread > 0 ? (totalUnread > 99 ? "99+" : totalUnread) : undefined,
+          tabBarBadgeStyle: { backgroundColor: "#DC2626", color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubble-ellipses-outline" color={color} size={size} />
           ),

@@ -61,11 +61,8 @@ export const ChatRepository = {
     propertyLocation: string;
     propertyStatus: string;
   }): Promise<Conversation> {
-    const res = await api.post("/conversations", {
-      propertyId: params.propertyId,
-      buyerId: params.buyerId,
-      ownerId: params.ownerId,
-    });
+    // Buyer = logged-in user and owner = property owner are resolved by the backend
+    const res = await api.post("/conversations", { propertyId: params.propertyId });
     return res.data;
   },
 
@@ -76,14 +73,14 @@ export const ChatRepository = {
     senderName: string;
     text: string;
   }): Promise<Message> {
+    // Sender role is derived by the backend from the conversation
     const res = await api.post(`/conversations/${params.conversationId}/messages`, {
       text: params.text,
-      senderRole: params.senderRole,
     });
     return res.data;
   },
 
-  async markAsRead(conversationId: string, role: "buyer" | "owner"): Promise<void> {
-    await api.put(`/conversations/${conversationId}/read`, { role });
+  async markAsRead(conversationId: string): Promise<void> {
+    await api.put(`/conversations/${conversationId}/read`);
   },
 };

@@ -235,12 +235,26 @@ export default function ProductDetail() {
     openExternalDirections(property.center);
   };
 
+  const [isOpeningChat, setIsOpeningChat] = useState(false);
+
   const handleContactAgent = async () => {
-    if (!property) return;
+    if (!property || isOpeningChat) return;
+    if (!user) {
+      Alert.alert("Masuk diperlukan", "Silakan masuk atau daftar untuk mengirim pesan ke pemilik properti.", [
+        { text: "Nanti", style: "cancel" },
+        { text: "Masuk", onPress: () => router.push("/auth/login") },
+      ]);
+      return;
+    }
+    if (property.ownerId && property.ownerId === user.id) {
+      Alert.alert("Properti Anda", "Ini adalah properti milik Anda. Pesan dari calon pembeli akan muncul di tab Chat.");
+      return;
+    }
+    setIsOpeningChat(true);
     try {
       const conv = await getOrCreateConversation({
-        buyerId: user?.id || "buyer-1",
-        buyerName: user?.fullName || "Buyer Lokatani",
+        buyerId: user.id,
+        buyerName: user.fullName || "",
         ownerId: property.ownerId || "owner",
         ownerName: property.owner || "Pemilik Properti",
         propertyId: String(property.id),
@@ -260,8 +274,13 @@ export default function ProductDetail() {
           status: property.isForSale ? "For Sale" : "For Rent",
         },
       });
-    } catch {
-      Alert.alert("Chat Error", "Could not initialize conversation.");
+    } catch (error: any) {
+      Alert.alert(
+        "Tidak dapat membuka chat",
+        error?.response?.data?.error || "Periksa koneksi internet Anda lalu coba lagi."
+      );
+    } finally {
+      setIsOpeningChat(false);
     }
   };
 
@@ -716,8 +735,12 @@ export default function ProductDetail() {
           <Text style={styles.secondaryActionText}>View Route</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.primaryActionBtn} onPress={handleContactAgent}>
-          <Ionicons name="chatbubble-ellipses" size={16} color="#FFFFFF" />
+        <TouchableOpacity style={styles.primaryActionBtn} onPress={handleContactAgent} disabled={isOpeningChat}>
+          {isOpeningChat ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="chatbubble-ellipses" size={16} color="#FFFFFF" />
+          )}
           <Text style={styles.primaryActionText}>Contact Agent</Text>
         </TouchableOpacity>
       </View>

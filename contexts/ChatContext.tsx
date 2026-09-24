@@ -1,10 +1,19 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { AppState } from "react-native";
 import { ChatRepository, Conversation, Message } from "../services/chatService";
+import { useAuth } from "./AuthContext";
 
 export { Conversation, Message };
 
+/** How often the conversation list refreshes while the app is in the foreground */
+const LIST_POLL_MS = 15000;
+
 interface ChatContextType {
   conversations: Conversation[];
+  /** true until the first conversation fetch for the current user finished */
+  isLoadingConversations: boolean;
+  /** unread messages for the logged-in user across all conversations */
+  totalUnread: number;
   refreshConversations: () => Promise<void>;
   getOrCreateConversation: (params: {
     buyerId: string;
@@ -26,66 +35,128 @@ interface ChatContextType {
     senderName: string;
     text: string;
   }) => Promise<Message>;
-  markAsRead: (conversationId: string, role: "buyer" | "owner") => Promise<void>;
+  /** role is kept for backwards compatibility — the backend derives it */
+  markAsRead: (conversationId: string, role?: "buyer" | "owner") => Promise<void>;
   getUnreadCountForUser: (userId: string, role: "buyer" | "owner", ownerName?: string) => number;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = user?.id ?? null;
 
   const refreshConversations = useCallback(async () => {
+    if (!userIdRef.current) {
+      setConversations([]);
+      setIsLoadingConversations(false);
+      return;
+    }
     try {
       const data = await ChatRepository.getConversations();
       setConversations(data);
-    } catch (error) {
-      // Not logged in yet, or session expired — conversations simply stay empty.
-      setConversations([]);
+    } catch {
+      // Network hiccup / expired session — keep the last known list
+    } finally {
+      setIsLoadingConversations(false);
     }
   }, []);
 
+  // Reload whenever the logged-in user changes (login, logout, switching account)
   useEffect(() => {
+    setConversations([]);
+    setIsLoadingConversations(!!user);
     refreshConversations();
+  }, [user?.id, refreshConversations]);
+
+  // Keep the list (and unread badges) fresh while the app is open
+  useEffect(() => {
+    if (!user) return;
+    let timer: ReturnType<typeof setInterval> | null = setInterval(refreshConversations, LIST_POLL_MS);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshConversations();
+        if (!timer) timer = setInterval(refreshConversations, LIST_POLL_MS);
+      } else if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    });
+    return () => {
+      if (timer) clearInterval(timer);
+      sub.remove();
+    };
+  }, [user?.id, refreshConversations]);
+
+  const totalUnread = useMemo(() => {
+    if (!user) return 0;
+    return conversations.reduce(
+      (sum, c) => sum + (c.ownerId === user.id ? c.unreadOwner || 0 : c.buyerId === user.id ? c.unreadBuyer || 0 : 0),
+      0
+    );
+  }, [conversations, user]);
+
+  // All actions are memoised so screens can safely list them as effect dependencies
+  const getOrCreateConversation = useCallback(async (params: Parameters<typeof ChatRepository.getOrCreateConversation>[0]) => {
+    const conv = await ChatRepository.getOrCreateConversation(params);
+    // Make it available to the chat room immediately, then sync the full list
+    setConversations((prev) => (prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev]));
+    refreshConversations();
+    return conv;
   }, [refreshConversations]);
 
-  const getOrCreateConversation = async (params: Parameters<typeof ChatRepository.getOrCreateConversation>[0]) => {
-    const conv = await ChatRepository.getOrCreateConversation(params);
-    await refreshConversations();
-    return conv;
-  };
+  const getMessagesForConversation = useCallback(
+    (conversationId: string) => ChatRepository.getMessages(conversationId),
+    []
+  );
 
-  const getMessagesForConversation = async (conversationId: string) => {
-    return await ChatRepository.getMessages(conversationId);
-  };
-
-  const sendMessage = async (params: Parameters<typeof ChatRepository.postMessage>[0]) => {
+  const sendMessage = useCallback(async (params: Parameters<typeof ChatRepository.postMessage>[0]) => {
     const msg = await ChatRepository.postMessage(params);
-    await refreshConversations();
+    // Optimistically bump the conversation to the top of the list
+    setConversations((prev) => {
+      const conv = prev.find((c) => c.id === params.conversationId);
+      if (!conv) return prev;
+      const updated = { ...conv, lastMessage: msg.text, lastMessageTime: msg.time, updatedAt: msg.createdAt };
+      return [updated, ...prev.filter((c) => c.id !== conv.id)];
+    });
     return msg;
-  };
+  }, []);
 
-  const markAsRead = async (conversationId: string, role: "buyer" | "owner") => {
-    await ChatRepository.markAsRead(conversationId, role);
-    await refreshConversations();
-  };
+  const markAsRead = useCallback(async (conversationId: string) => {
+    const me = userIdRef.current;
+    // Clear the badge right away (only touch state if there was something unread)
+    setConversations((prev) => {
+      const conv = prev.find((c) => c.id === conversationId);
+      if (!conv) return prev;
+      const mine = conv.buyerId === me ? "unreadBuyer" : conv.ownerId === me ? "unreadOwner" : null;
+      if (!mine || !conv[mine]) return prev;
+      return prev.map((c) => (c.id === conversationId ? { ...c, [mine]: 0 } : c));
+    });
+    try {
+      await ChatRepository.markAsRead(conversationId);
+    } catch {}
+  }, []);
 
   const getUnreadCountForUser = (userId: string, role: "buyer" | "owner", ownerName?: string) => {
     if (role === "buyer") {
       return conversations
         .filter((c) => c.buyerId === userId)
         .reduce((sum, c) => sum + (c.unreadBuyer || 0), 0);
-    } else {
-      return conversations
-        .filter((c) => c.ownerId === userId || c.ownerName === ownerName || c.ownerName === userId)
-        .reduce((sum, c) => sum + (c.unreadOwner || 0), 0);
     }
+    return conversations
+      .filter((c) => c.ownerId === userId || c.ownerName === ownerName)
+      .reduce((sum, c) => sum + (c.unreadOwner || 0), 0);
   };
 
   return (
     <ChatContext.Provider
       value={{
         conversations,
+        isLoadingConversations,
+        totalUnread,
         refreshConversations,
         getOrCreateConversation,
         getMessagesForConversation,

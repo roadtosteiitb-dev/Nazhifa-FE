@@ -6,12 +6,14 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "../../contexts/ThemeContext";
 import { BookmarkProvider, useBookmark } from "../../contexts/BookmarkContext";
 import { LandProvider } from "../../contexts/LandContext"; // ✅ Tambahkan ini agar data lahan global tersedia
+import { useChat } from "../../contexts/ChatContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 function BuyerTabs() {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const { favorites } = useBookmark();
+  const { totalUnread } = useChat();
   const insets = useSafeAreaInsets();
 
   const favoriteCount = favorites.length;
@@ -74,6 +76,8 @@ function BuyerTabs() {
           name="chat"
           options={{
             title: 'Chat',
+            tabBarBadge: totalUnread > 0 ? (totalUnread > 99 ? "99+" : totalUnread) : undefined,
+            tabBarBadgeStyle: { backgroundColor: "#DC2626", color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
             tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubble-ellipses-outline" color={color} size={size} />
             ),
