@@ -87,7 +87,11 @@ const GisPropertyCard = ({ item, active, onPress, userLoc }: any) => {
 
   const district = item.location?.split(",")[0]?.trim() ?? "Yogyakarta";
   const propType = item.isForSale ? "sale" : "rent";
-  const typeLabel = item.type === "house" ? "Rumah" : item.type === "apartment" ? "Apartemen" : "Lahan";
+  const typeLabel =
+    item.type === "house" ? "Rumah"
+    : item.type === "apartment" ? "Apartemen"
+    : item.type === "villa" ? "Villa"
+    : "Lahan";
 
   return (
     <TouchableOpacity

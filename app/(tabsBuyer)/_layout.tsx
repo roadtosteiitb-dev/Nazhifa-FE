@@ -97,7 +97,8 @@ function BuyerTabs() {
 export default function PembeliLayout() {
   return (
     <BookmarkProvider>
-        <LandProvider> {/* ✅ Bungkus agar data tanah tersedia di semua tab */}
+        {/* ✅ Bungkus agar data tanah tersedia di semua tab */}
+        <LandProvider>
           <BuyerTabs />
         </LandProvider>
     </BookmarkProvider>

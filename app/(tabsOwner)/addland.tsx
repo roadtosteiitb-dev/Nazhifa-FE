@@ -11,6 +11,7 @@ import {
   Alert,
   Modal,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -18,11 +19,37 @@ import * as Location from "expo-location";
 import MapView, { Marker, MapPressEvent } from "react-native-maps";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
-import { useLands, Land } from "../../contexts/LandContext";
+import { useLands } from "../../contexts/LandContext";
+import api from "../../services/apiClient";
 
 const { width } = Dimensions.get("window");
+
+const MAX_PHOTOS = 10;
+
+type PropertyType = "house" | "apartment" | "villa";
+
+const PROPERTY_TYPES: { key: PropertyType; label: string }[] = [
+  { key: "house", label: "Rumah" },
+  { key: "apartment", label: "Apartemen" },
+  { key: "villa", label: "Villa" },
+];
+
+const propertyTypeLabel = (key: PropertyType) =>
+  PROPERTY_TYPES.find((t) => t.key === key)?.label ?? key;
+
+const FURNISHED_OPTIONS = [
+  { key: "furnished", label: "Full Furnished" },
+  { key: "semi", label: "Semi Furnished" },
+  { key: "unfurnished", label: "Unfurnished" },
+];
+
+type PickedImage = { uri: string; name: string; type: string };
+
+const toPickedImage = (asset: ImagePicker.ImagePickerAsset): PickedImage => {
+  const name = asset.fileName || asset.uri.split("/").pop() || `photo_${Date.now()}.jpg`;
+  return { uri: asset.uri, name, type: asset.mimeType || "image/jpeg" };
+};
 
 interface DropdownPickerProps {
   visible: boolean;
@@ -95,35 +122,31 @@ function DropdownPicker({
 export default function AddProperty() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { user } = useAuth();
-  const { setLands, addNotification } = useLands();
+  const { refreshLands } = useLands();
 
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [form, setForm] = useState({
-    image: "",
+    images: [] as PickedImage[],
     listingType: "Dijual", // "Dijual" or "Disewa"
-    propertyType: "Rumah", // "Rumah" or "Apartemen"
+    propertyType: "house" as PropertyType,
     title: "",
     price: "",
     description: "",
-    facilities: [] as string[],
 
-    // Specific specs for Rumah
-    landSize: "",        // Luas Tanah (m2)
-    buildingSize: "",    // Luas Bangunan (m2)
-    floors: "",          // Jumlah Lantai
-    bedrooms: "",        // Kamar Tidur
-    bathrooms: "",       // Kamar Mandi
-    electricity: "",     // Daya Listrik (VA)
-    certificate: "SHM",  // Sertifikat (SHM, HGB, dll)
-    garage: "",          // Garasi / Carport
-
-    // Specific specs for Apartemen
-    unitSize: "",        // Luas Unit (m2)
-    unitFloor: "",       // Lantai Ke-
-    unitType: "Studio",  // Tipe Unit (Studio, 1BR, 2BR, 3BR+)
-    furnished: "unfurnished", // furnished, semi, unfurnished
+    // Informasi Properti — 1:1 with columns of the `lands` table
+    landArea: "",        // land_area (m², rumah & villa)
+    buildingArea: "",    // building_area (m², luas unit untuk apartemen)
+    floors: "",          // floors (rumah & villa)
+    bedrooms: "",        // bedrooms
+    bathrooms: "",       // bathrooms
+    electricity: "",     // electricity (VA)
+    certificate: "SHM",  // certificate
+    garage: "",          // garage
+    unitFloor: "",       // unit_floor (apartemen)
+    unitType: "Studio",  // unit_type (apartemen)
+    furnished: "unfurnished", // furnished: furnished | semi | unfurnished
 
     // Location
     address: "",
@@ -131,31 +154,76 @@ export default function AddProperty() {
     longitude: 110.3695,
 
     // Legal Document Verification
-    certificateImage: "",
+    certificateImage: null as PickedImage | null,
   });
 
   // Dropdown Picker Visibility States
   const [certPickerVisible, setCertPickerVisible] = useState(false);
   const [unitTypePickerVisible, setUnitTypePickerVisible] = useState(false);
   const [furnishedPickerVisible, setFurnishedPickerVisible] = useState(false);
+  const [typePickerVisible, setTypePickerVisible] = useState(false);
+
+  const isApartment = form.propertyType === "apartment";
+
+  type InfoField = "landArea" | "buildingArea" | "floors" | "bedrooms" | "bathrooms"
+    | "electricity" | "garage" | "unitFloor";
+
+  const renderField = (
+    label: string,
+    key: InfoField,
+    placeholder: string,
+    keyboardType: "default" | "number-pad" = "default"
+  ) => (
+    <>
+      <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
+      <TextInput
+        style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textLight}
+        keyboardType={keyboardType}
+        value={form[key]}
+        onChangeText={(text) =>
+          setForm((p) => ({ ...p, [key]: keyboardType === "number-pad" ? text.replace(/[^\d]/g, "") : text }))
+        }
+      />
+    </>
+  );
 
   /* ================= IMAGE PICKER ================= */
-  const pickImage = async () => {
+  const pickImages = async () => {
+    const remaining = MAX_PHOTOS - form.images.length;
+    if (remaining <= 0) {
+      Alert.alert("Batas Foto", `Maksimal ${MAX_PHOTOS} foto per properti.`);
+      return;
+    }
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert("Izin Diperlukan", "Mohon izinkan akses galeri untuk mengunggah foto.");
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      orderedSelection: true,
       quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 3],
-      base64: true,
     });
     if (!res.canceled && res.assets && res.assets.length > 0) {
-      const uri = res.assets[0].uri;
-      setForm((p) => ({ ...p, image: uri }));
+      const picked = res.assets.map(toPickedImage);
+      setForm((p) => ({ ...p, images: [...p.images, ...picked].slice(0, MAX_PHOTOS) }));
     }
+  };
+
+  const removeImage = (index: number) => {
+    setForm((p) => ({ ...p, images: p.images.filter((_, i) => i !== index) }));
+  };
+
+  const makeCover = (index: number) => {
+    setForm((p) => {
+      const images = [...p.images];
+      const [cover] = images.splice(index, 1);
+      return { ...p, images: [cover, ...images] };
+    });
   };
 
   const pickCertificateImage = async () => {
@@ -165,14 +233,13 @@ export default function AddProperty() {
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
       quality: 0.7,
       allowsEditing: true,
-      base64: true,
     });
 
     if (!res.canceled && res.assets && res.assets.length > 0) {
-      const uri = res.assets[0].uri;
-      setForm((p) => ({ ...p, certificateImage: uri }));
+      setForm((p) => ({ ...p, certificateImage: toPickedImage(res.assets[0]) }));
     }
   };
 
@@ -226,7 +293,9 @@ export default function AddProperty() {
   };
 
   /* ================= SUBMIT / PUBLISH ================= */
-  const handlePublish = () => {
+  const handlePublish = async () => {
+    if (isSubmitting) return;
+    if (form.images.length === 0) return Alert.alert("Peringatan", "Harap unggah minimal 1 foto properti!");
     if (!form.title.trim()) return Alert.alert("Peringatan", "Harap masukkan judul properti!");
     if (!form.price.trim()) return Alert.alert("Peringatan", "Harap masukkan harga!");
     if (!form.address.trim()) return Alert.alert("Peringatan", "Harap masukkan alamat lokasi!");
@@ -234,98 +303,76 @@ export default function AddProperty() {
     const cleanPrice = parseFloat(form.price.replace(/[^\d]/g, ""));
     if (isNaN(cleanPrice)) return Alert.alert("Peringatan", "Harap masukkan harga yang valid!");
 
-    const newId = Date.now().toString();
-
-    // Differentiate area spec values
-    const propertyArea =
-      form.propertyType === "Rumah"
-        ? {
-            land: form.landSize ? `${form.landSize} m²` : "-",
-            building: form.buildingSize ? `${form.buildingSize} m²` : "-",
-          }
-        : {
-            building: form.unitSize ? `${form.unitSize} m²` : "-",
-          };
-
-    const newLand: Land = {
-      id: newId,
-      name: form.title,
-      location: form.address,
-      price: cleanPrice,
-      isForSale: form.listingType === "Dijual",
-      type: form.propertyType === "Rumah" ? "house" : "apartment",
-      status: "Pending",
-      owner: user?.fullName || "Owner",
-      description: form.description || "Tidak ada deskripsi properti.",
-      image: form.image || "https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=800",
-      images: form.image
-        ? [form.image]
-        : ["https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=800"],
-      area: propertyArea,
-      facilities: form.facilities,
-      coords: [{ latitude: form.latitude, longitude: form.longitude }],
-      center: { latitude: form.latitude, longitude: form.longitude },
-
-      // Rumah properties
-      floors: form.propertyType === "Rumah" && form.floors ? parseInt(form.floors) : undefined,
-      bedrooms: form.bedrooms ? parseInt(form.bedrooms) : undefined,
-      bathrooms: form.bathrooms ? parseInt(form.bathrooms) : undefined,
-      electricity: form.propertyType === "Rumah" && form.electricity ? parseInt(form.electricity) : undefined,
-      certificate: form.propertyType === "Rumah" ? form.certificate : undefined,
-      garage: form.propertyType === "Rumah" ? form.garage : undefined,
-      // Apartemen properties
-      unitFloor: form.propertyType === "Apartemen" && form.unitFloor ? parseInt(form.unitFloor) : undefined,
-      unitType: form.propertyType === "Apartemen" ? form.unitType : undefined,
-      furnished: form.propertyType === "Apartemen" ? (form.furnished as any) : undefined,
-
-      // Legal Document Verification
-      certificateImage: form.certificateImage || "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=800&q=80",
-      createdAt: new Date().toISOString().split("T")[0],
+    const body = new FormData();
+    const append = (key: string, value?: string | number | null) => {
+      if (value !== undefined && value !== null && value !== "") body.append(key, String(value));
     };
 
-    setLands((prev) => [newLand, ...prev]);
+    append("name", form.title.trim());
+    append("location", form.address.trim());
+    append("price", cleanPrice);
+    append("isForSale", form.listingType === "Dijual" ? "1" : "0");
+    append("type", form.propertyType);
+    append("description", form.description.trim() || "Tidak ada deskripsi properti.");
+    append("latitude", form.latitude);
+    append("longitude", form.longitude);
+    append("buildingArea", form.buildingArea);
+    append("bedrooms", form.bedrooms);
+    append("bathrooms", form.bathrooms);
+    append("electricity", form.electricity);
+    append("certificate", form.certificate);
+    append("garage", form.garage.trim());
+    append("furnished", form.furnished);
 
-    // Send owner notification
-    if (addNotification) {
-      addNotification(newId, form.title, "submitted", user?.fullName || "Owner");
+    if (isApartment) {
+      append("unitFloor", form.unitFloor);
+      append("unitType", form.unitType);
+    } else {
+      append("landArea", form.landArea);
+      append("floors", form.floors);
     }
 
-    Alert.alert("Sukses", "Properti Anda berhasil diajukan dan sedang menunggu persetujuan administrator!", [
-      {
-        text: "OK",
-        onPress: () => {
-          router.replace("/(tabsOwner)/homeOwner");
-        },
-      },
-    ]);
-  };
+    // React Native FormData accepts { uri, name, type } objects as files
+    form.images.forEach((img) => body.append("images[]", img as any));
+    if (form.certificateImage) body.append("certificateImage", form.certificateImage as any);
 
-  /* ================= UTILITY CONTROLS ================= */
-  const toggleFacility = (facility: string) => {
-    setForm((p) => {
-      const exists = p.facilities.includes(facility);
-      if (exists) {
-        return { ...p, facilities: p.facilities.filter((f) => f !== facility) };
-      } else {
-        return { ...p, facilities: [...p.facilities, facility] };
-      }
-    });
+    try {
+      setIsSubmitting(true);
+      await api.post("/lands", body, {
+        headers: { "Content-Type": "multipart/form-data" },
+        transformRequest: (data) => data,
+        timeout: 120000,
+      });
+      await refreshLands();
+
+      Alert.alert("Sukses", "Properti Anda berhasil diajukan dan sedang menunggu persetujuan administrator!", [
+        { text: "OK", onPress: () => router.replace("/(tabsOwner)/homeOwner") },
+      ]);
+    } catch (error: any) {
+      const errors = error.response?.data?.errors;
+      const msg = errors
+        ? (Object.values(errors).flat() as string[]).join("\n")
+        : error.response?.data?.message || error.message || "Gagal mengunggah properti.";
+      Alert.alert("Gagal", msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   /* ================= RENDER STEPS ================= */
   const StepIndicator = () => (
     <View style={styles.stepperContainer}>
-      {[1, 2, 3].map((s) => (
+      {[1, 2].map((s) => (
         <React.Fragment key={s}>
           <View style={[styles.stepItem, step === s && { borderColor: theme.primary }]}>
             <View style={[styles.stepDot, step >= s ? { backgroundColor: theme.primary } : { backgroundColor: theme.border }]}>
               <Text style={styles.stepNumberText}>{s}</Text>
             </View>
             <Text style={[styles.stepLabel, { color: step === s ? theme.text : theme.textSecondary }]}>
-              {s === 1 ? "Dasar" : s === 2 ? "Detail" : "Lokasi"}
+              {s === 1 ? "Informasi" : "Lokasi"}
             </Text>
           </View>
-          {s < 3 && <View style={[styles.stepConnector, { backgroundColor: step > s ? theme.primary : theme.border }]} />}
+          {s < 2 && <View style={[styles.stepConnector, { backgroundColor: step > s ? theme.primary : theme.border }]} />}
         </React.Fragment>
       ))}
     </View>
@@ -352,21 +399,62 @@ export default function AddProperty() {
         {step === 1 && (
           <View style={styles.formContainer}>
             {/* Foto Upload */}
-            <Text style={[styles.fieldLabel, { color: theme.text }]}>Foto Properti</Text>
-            <TouchableOpacity
-              style={[styles.imageBox, { backgroundColor: theme.surface, borderColor: theme.border }]}
-              onPress={pickImage}
-              activeOpacity={0.8}
-            >
-              {form.image ? (
-                <Image source={{ uri: form.image }} style={styles.uploadedImage} />
-              ) : (
+            <Text style={[styles.fieldLabel, { color: theme.text }]}>
+              Foto Properti ({form.images.length}/{MAX_PHOTOS})
+            </Text>
+            {form.images.length === 0 ? (
+              <TouchableOpacity
+                style={[styles.imageBox, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                onPress={pickImages}
+                activeOpacity={0.8}
+              >
                 <View style={styles.uploadPlaceholder}>
-                  <Ionicons name="camera-outline" size={36} color={theme.textSecondary} />
+                  <Ionicons name="images-outline" size={36} color={theme.textSecondary} />
                   <Text style={[styles.uploadText, { color: theme.textSecondary }]}>Unggah Foto Hunian</Text>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>Pilih hingga {MAX_PHOTOS} foto sekaligus</Text>
                 </View>
-              )}
-            </TouchableOpacity>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <View style={styles.photoGrid}>
+                  {form.images.map((img, index) => (
+                    <TouchableOpacity
+                      key={`${img.uri}-${index}`}
+                      style={[styles.photoTile, { borderColor: theme.border }]}
+                      onPress={() => index > 0 && makeCover(index)}
+                      activeOpacity={index > 0 ? 0.8 : 1}
+                    >
+                      <Image source={{ uri: img.uri }} style={styles.uploadedImage} />
+                      {index === 0 && (
+                        <View style={[styles.coverBadge, { backgroundColor: theme.primary }]}>
+                          <Text style={styles.coverBadgeText}>Sampul</Text>
+                        </View>
+                      )}
+                      <TouchableOpacity
+                        style={styles.removePhotoBtn}
+                        onPress={() => removeImage(index)}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="close" size={14} color="#FFF" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                  {form.images.length < MAX_PHOTOS && (
+                    <TouchableOpacity
+                      style={[styles.photoTile, styles.addPhotoTile, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                      onPress={pickImages}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="add" size={28} color={theme.textSecondary} />
+                      <Text style={{ fontSize: 11, color: theme.textSecondary }}>Tambah</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 8 }}>
+                  Ketuk foto untuk menjadikannya sampul.
+                </Text>
+              </>
+            )}
 
             {/* Dokumen Sertifikat SHM Upload */}
             <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 12 }]}>Berkas Sertifikat SHM / Legalitas</Text>
@@ -376,7 +464,7 @@ export default function AddProperty() {
               activeOpacity={0.8}
             >
               {form.certificateImage ? (
-                <Image source={{ uri: form.certificateImage }} style={styles.uploadedImage} />
+                <Image source={{ uri: form.certificateImage.uri }} style={styles.uploadedImage} />
               ) : (
                 <View style={styles.uploadPlaceholder}>
                   <Ionicons name="document-text-outline" size={28} color={theme.primary} />
@@ -408,22 +496,27 @@ export default function AddProperty() {
 
               <View style={styles.flexHalf}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>Tipe Hunian</Text>
-                <View style={[styles.segmentRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  {["Rumah", "Apartemen"].map((t) => {
-                    const active = form.propertyType === t;
-                    return (
-                      <TouchableOpacity
-                        key={t}
-                        style={[styles.segmentBtn, active && { backgroundColor: theme.primary }]}
-                        onPress={() => setForm({ ...form, propertyType: t })}
-                      >
-                        <Text style={[styles.segmentText, { color: active ? "#FFF" : theme.textSecondary }]}>{t}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                <TouchableOpacity
+                  style={[styles.selectTrigger, styles.typeTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  onPress={() => setTypePickerVisible(true)}
+                >
+                  <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>
+                    {propertyTypeLabel(form.propertyType)}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                </TouchableOpacity>
               </View>
             </View>
+
+            <DropdownPicker
+              visible={typePickerVisible}
+              onClose={() => setTypePickerVisible(false)}
+              title="Pilih Tipe Hunian"
+              options={PROPERTY_TYPES}
+              selectedValue={form.propertyType}
+              onSelect={(val) => setForm((p) => ({ ...p, propertyType: val as PropertyType }))}
+              theme={theme}
+            />
 
             {/* Judul Properti */}
             <Text style={[styles.fieldLabel, { color: theme.text }]}>Judul Iklan</Text>
@@ -460,277 +553,133 @@ export default function AddProperty() {
               onChangeText={(text) => setForm({ ...form, description: text })}
             />
 
-            {/* Fasilitas Checkbox list */}
-            <Text style={[styles.fieldLabel, { color: theme.text }]}>Fasilitas</Text>
-            <View style={styles.facilitiesGrid}>
-              {["AC", "Carport", "Garasi", "Garden", "Swimming Pool", "Gym", "Access Card", "Security 24h", "Kitchen Set", "Balkon"].map((fac) => {
-                const active = form.facilities.includes(fac);
-                return (
-                  <TouchableOpacity
-                    key={fac}
-                    style={[styles.facilityChip, { borderColor: theme.border, backgroundColor: active ? theme.primary + "15" : theme.card }]}
-                    onPress={() => toggleFacility(fac)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={active ? "checkbox" : "square-outline"}
-                      size={18}
-                      color={active ? theme.primary : theme.textSecondary}
-                    />
-                    <Text style={[styles.facilityText, { color: active ? theme.primary : theme.text, fontWeight: active ? "700" : "400" }]}>
-                      {fac}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* ================= INFORMASI PROPERTI (kolom tabel lands) ================= */}
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Informasi Properti ({propertyTypeLabel(form.propertyType)})
+            </Text>
+
+            <View style={styles.row}>
+              {!isApartment && (
+                <View style={styles.flexHalf}>
+                  {renderField("Luas Tanah (m²)", "landArea", "Contoh: 120", "number-pad")}
+                </View>
+              )}
+              <View style={styles.flexHalf}>
+                {renderField(isApartment ? "Luas Unit (m²)" : "Luas Bangunan (m²)", "buildingArea", "Contoh: 90", "number-pad")}
+              </View>
             </View>
+
+            <View style={styles.row}>
+              <View style={styles.flexHalf}>
+                {renderField("Kamar Tidur", "bedrooms", "Jumlah KT", "number-pad")}
+              </View>
+              <View style={styles.flexHalf}>
+                {renderField("Kamar Mandi", "bathrooms", "Jumlah KM", "number-pad")}
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={styles.flexHalf}>
+                {isApartment
+                  ? renderField("Lantai Ke-", "unitFloor", "Contoh: 12", "number-pad")
+                  : renderField("Jumlah Lantai", "floors", "Contoh: 2", "number-pad")}
+              </View>
+              <View style={styles.flexHalf}>
+                {renderField("Daya Listrik (VA)", "electricity", "Contoh: 2200", "number-pad")}
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={styles.flexHalf}>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>Sertifikat</Text>
+                <TouchableOpacity
+                  style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  onPress={() => setCertPickerVisible(true)}
+                >
+                  <Text style={{ color: theme.text, fontSize: 14 }}>{form.certificate}</Text>
+                  <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.flexHalf}>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>Furnished</Text>
+                <TouchableOpacity
+                  style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  onPress={() => setFurnishedPickerVisible(true)}
+                >
+                  <Text style={{ color: theme.text, fontSize: 14 }}>
+                    {FURNISHED_OPTIONS.find((o) => o.key === form.furnished)?.label}
+                  </Text>
+                  <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              {isApartment && (
+                <View style={styles.flexHalf}>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>Tipe Unit</Text>
+                  <TouchableOpacity
+                    style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
+                    onPress={() => setUnitTypePickerVisible(true)}
+                  >
+                    <Text style={{ color: theme.text, fontSize: 14 }}>{form.unitType}</Text>
+                    <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              <View style={styles.flexHalf}>
+                {renderField(isApartment ? "Parkir" : "Garasi / Carport", "garage", "Contoh: Carport 2 Mobil")}
+              </View>
+            </View>
+
+            <DropdownPicker
+              visible={certPickerVisible}
+              onClose={() => setCertPickerVisible(false)}
+              title="Pilih Sertifikat"
+              options={[
+                { key: "SHM", label: "SHM - Hak Milik" },
+                { key: "HGB", label: "HGB - Hak Guna Bangunan" },
+                { key: "Lainnya", label: "Sertifikat Lainnya" },
+              ]}
+              selectedValue={form.certificate}
+              onSelect={(val) => setForm((p) => ({ ...p, certificate: val }))}
+              theme={theme}
+            />
+
+            <DropdownPicker
+              visible={unitTypePickerVisible}
+              onClose={() => setUnitTypePickerVisible(false)}
+              title="Pilih Tipe Unit"
+              options={[
+                { key: "Studio", label: "Studio" },
+                { key: "1BR", label: "1BR (1 Kamar)" },
+                { key: "2BR", label: "2BR (2 Kamar)" },
+                { key: "3BR+", label: "3BR+ (3 Kamar atau Lebih)" },
+              ]}
+              selectedValue={form.unitType}
+              onSelect={(val) => setForm((p) => ({ ...p, unitType: val }))}
+              theme={theme}
+            />
+
+            <DropdownPicker
+              visible={furnishedPickerVisible}
+              onClose={() => setFurnishedPickerVisible(false)}
+              title="Pilih Kondisi Furnish"
+              options={FURNISHED_OPTIONS}
+              selectedValue={form.furnished}
+              onSelect={(val) => setForm((p) => ({ ...p, furnished: val }))}
+              theme={theme}
+            />
 
             {/* Next Button */}
             <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.primary }]} onPress={() => setStep(2)}>
-              <Text style={styles.actionBtnText}>Lanjut ke Detail</Text>
+              <Text style={styles.actionBtnText}>Lanjut ke Lokasi</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ================= STEP 2: SPESIFIKASI RUMAH / APARTEMEN ================= */}
+        {/* ================= STEP 2: LOKASI & PUBLISH ================= */}
         {step === 2 && (
-          <View style={styles.formContainer}>
-            <Text style={[styles.stepTitle, { color: theme.text }]}>Detail Hunian ({form.propertyType})</Text>
-
-            {form.propertyType === "Rumah" ? (
-              /* ================= INPUT RUMAH ================= */
-              <View>
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Luas Tanah (m²)</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 120"
-                      keyboardType="numeric"
-                      value={form.landSize}
-                      onChangeText={(text) => setForm({ ...form, landSize: text })}
-                    />
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Luas Bangunan (m²)</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 90"
-                      keyboardType="numeric"
-                      value={form.buildingSize}
-                      onChangeText={(text) => setForm({ ...form, buildingSize: text })}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Kamar Tidur</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Jumlah KT"
-                      keyboardType="numeric"
-                      value={form.bedrooms}
-                      onChangeText={(text) => setForm({ ...form, bedrooms: text })}
-                    />
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Kamar Mandi</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Jumlah KM"
-                      keyboardType="numeric"
-                      value={form.bathrooms}
-                      onChangeText={(text) => setForm({ ...form, bathrooms: text })}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Jumlah Lantai</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 2"
-                      keyboardType="numeric"
-                      value={form.floors}
-                      onChangeText={(text) => setForm({ ...form, floors: text })}
-                    />
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Daya Listrik (VA)</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 2200"
-                      keyboardType="numeric"
-                      value={form.electricity}
-                      onChangeText={(text) => setForm({ ...form, electricity: text })}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Sertifikat</Text>
-                    <TouchableOpacity
-                      style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
-                      onPress={() => setCertPickerVisible(true)}
-                    >
-                      <Text style={{ color: theme.text, fontSize: 14 }}>{form.certificate}</Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Kapasitas Garasi</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 1 Mobil"
-                      value={form.garage}
-                      onChangeText={(text) => setForm({ ...form, garage: text })}
-                    />
-                  </View>
-                </View>
-
-                <DropdownPicker
-                  visible={certPickerVisible}
-                  onClose={() => setCertPickerVisible(false)}
-                  title="Pilih Sertifikat"
-                  options={[
-                    { key: "SHM", label: "SHM - Hak Milik" },
-                    { key: "HGB", label: "HGB - Hak Guna Bangunan" },
-                    { key: "Lainnya", label: "Sertifikat Lainnya" },
-                  ]}
-                  selectedValue={form.certificate}
-                  onSelect={(val) => setForm({ ...form, certificate: val })}
-                  theme={theme}
-                />
-              </View>
-            ) : (
-              /* ================= INPUT APARTEMEN ================= */
-              <View>
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Luas Unit (m²)</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 45"
-                      keyboardType="numeric"
-                      value={form.unitSize}
-                      onChangeText={(text) => setForm({ ...form, unitSize: text })}
-                    />
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Lantai Ke-</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Contoh: 12"
-                      keyboardType="numeric"
-                      value={form.unitFloor}
-                      onChangeText={(text) => setForm({ ...form, unitFloor: text })}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Kamar Tidur</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Jumlah KT"
-                      keyboardType="numeric"
-                      value={form.bedrooms}
-                      onChangeText={(text) => setForm({ ...form, bedrooms: text })}
-                    />
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Kamar Mandi</Text>
-                    <TextInput
-                      style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-                      placeholder="Jumlah KM"
-                      keyboardType="numeric"
-                      value={form.bathrooms}
-                      onChangeText={(text) => setForm({ ...form, bathrooms: text })}
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.row}>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Tipe Unit</Text>
-                    <TouchableOpacity
-                      style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
-                      onPress={() => setUnitTypePickerVisible(true)}
-                    >
-                      <Text style={{ color: theme.text, fontSize: 14 }}>{form.unitType}</Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.flexHalf}>
-                    <Text style={[styles.fieldLabel, { color: theme.text }]}>Furnished</Text>
-                    <TouchableOpacity
-                      style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
-                      onPress={() => setFurnishedPickerVisible(true)}
-                    >
-                      <Text style={{ color: theme.text, fontSize: 14 }}>
-                        {form.furnished === "furnished" ? "Full Furnished" : form.furnished === "semi" ? "Semi Furnished" : "Unfurnished"}
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <DropdownPicker
-                  visible={unitTypePickerVisible}
-                  onClose={() => setUnitTypePickerVisible(false)}
-                  title="Pilih Tipe Unit"
-                  options={[
-                    { key: "Studio", label: "Studio" },
-                    { key: "1BR", label: "1BR (1 Kamar)" },
-                    { key: "2BR", label: "2BR (2 Kamar)" },
-                    { key: "3BR+", label: "3BR+ (3 Kamar atau Lebih)" },
-                  ]}
-                  selectedValue={form.unitType}
-                  onSelect={(val) => setForm({ ...form, unitType: val })}
-                  theme={theme}
-                />
-
-                <DropdownPicker
-                  visible={furnishedPickerVisible}
-                  onClose={() => setFurnishedPickerVisible(false)}
-                  title="Pilih Kondisi Furnish"
-                  options={[
-                    { key: "furnished", label: "Fully Furnished" },
-                    { key: "semi", label: "Semi Furnished" },
-                    { key: "unfurnished", label: "Unfurnished" },
-                  ]}
-                  selectedValue={form.furnished}
-                  onSelect={(val) => setForm({ ...form, furnished: val })}
-                  theme={theme}
-                />
-              </View>
-            )}
-
-            {/* Navigation buttons */}
-            <View style={styles.buttonGroup}>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.cancelBtn, { borderColor: theme.border }]}
-                onPress={() => setStep(1)}
-              >
-                <Text style={[styles.cancelBtnText, { color: theme.text }]}>Kembali</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.flex2, { backgroundColor: theme.primary }]}
-                onPress={() => setStep(3)}
-              >
-                <Text style={styles.actionBtnText}>Lanjut ke Lokasi</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* ================= STEP 3: LOKASI & PUBLISH ================= */}
-        {step === 3 && (
           <View style={styles.formContainer}>
             <Text style={[styles.stepTitle, { color: theme.text }]}>Tentukan Lokasi Hunian</Text>
             <Text style={[styles.stepSub, { color: theme.textSecondary }]}>Geser marker di peta ke lokasi properti yang sesuai</Text>
@@ -783,16 +732,21 @@ export default function AddProperty() {
             <View style={styles.buttonGroup}>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.cancelBtn, { borderColor: theme.border }]}
-                onPress={() => setStep(2)}
+                onPress={() => setStep(1)}
               >
                 <Text style={[styles.cancelBtnText, { color: theme.text }]}>Kembali</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionBtn, styles.flex2, { backgroundColor: theme.primary }]}
+                style={[styles.actionBtn, styles.flex2, { backgroundColor: theme.primary, opacity: isSubmitting ? 0.7 : 1 }]}
                 onPress={handlePublish}
+                disabled={isSubmitting}
               >
-                <Text style={styles.actionBtnText}>Publish Hunian</Text>
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.actionBtnText}>Publish Hunian</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -883,6 +837,48 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 12,
   },
+  photoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
+  photoTile: {
+    width: (width - 32 - 16) / 3,
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  addPhotoTile: {
+    borderStyle: "dashed",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  coverBadge: {
+    position: "absolute",
+    left: 6,
+    bottom: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  coverBadgeText: {
+    color: "#FFF",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  removePhotoBtn: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   uploadPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
@@ -929,23 +925,14 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: "top",
   },
-  facilitiesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 20,
+    marginBottom: 4,
   },
-  facilityChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  facilityText: {
-    fontSize: 12,
+  typeTrigger: {
+    paddingVertical: 9,
   },
   actionBtn: {
     padding: 16,

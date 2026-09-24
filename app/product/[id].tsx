@@ -33,6 +33,12 @@ import { fetchNearestFacilities, NearestFacility } from "../../services/Facility
 const { width: screenWidth } = Dimensions.get("window");
 const PLACEHOLDER_IMAGE = "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800";
 
+// land_area / building_area are stored as plain numbers ("160"); older rows may already include the unit
+const formatArea = (value?: string | null) => {
+  if (!value) return "—";
+  return /^\d+([.,]\d+)?$/.test(value.trim()) ? `${value.trim()} m²` : value;
+};
+
 /* ─── Loading Skeleton Component ─────────────────────────────────────────── */
 const SectionSkeleton = ({ lines = 3 }: { lines?: number }) => (
   <View style={{ gap: 8, padding: 4 }}>
@@ -393,11 +399,11 @@ export default function ProductDetail() {
             </View>
             <View style={styles.specBox}>
               <Text style={styles.specLabel}>Land Area</Text>
-              <Text style={styles.specVal}>{property.area?.land ?? "—"}</Text>
+              <Text style={styles.specVal}>{formatArea(property.area?.land)}</Text>
             </View>
             <View style={styles.specBox}>
               <Text style={styles.specLabel}>Building Area</Text>
-              <Text style={styles.specVal}>{property.area?.building ?? "—"}</Text>
+              <Text style={styles.specVal}>{formatArea(property.area?.building)}</Text>
             </View>
             <View style={styles.specBox}>
               <Text style={styles.specLabel}>Bedrooms</Text>

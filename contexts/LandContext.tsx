@@ -20,7 +20,7 @@ export interface Land {
   isOnline?: boolean;
   isForSale?: boolean;
   rating?: number;
-  type?: "house" | "apartment";
+  type?: "house" | "apartment" | "villa";
   facilities?: string[];
   description?: string;
   floors?: number;
