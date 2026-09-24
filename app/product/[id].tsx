@@ -18,6 +18,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { DisasterDonutChart } from "../../components/gis/DisasterDonutChart";
+import { RouteModal, openExternalDirections } from "../../components/gis/RouteModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { useChat } from "../../contexts/ChatContext";
 import {
@@ -214,14 +215,24 @@ export default function ProductDetail() {
   };
 
   /* ── Route/Contact ── */
+  const [routeFacility, setRouteFacility] = useState<NearestFacility | null>(null);
+
+  // Facility "Route" button → in-app road route from the property to that facility
+  const handleFacilityRoute = (fac: NearestFacility) => {
+    if (!property?.center) {
+      Alert.alert("Rute", "Koordinat tidak tersedia untuk properti ini.");
+      return;
+    }
+    setRouteFacility(fac);
+  };
+
+  // Footer "View Route" → navigation from the user's current location to the property
   const handleViewRoute = () => {
-    const coords = property?.center;
-    Alert.alert(
-      "pgRouting Navigation",
-      coords
-        ? `Simulating shortest route to: ${coords.latitude}, ${coords.longitude}`
-        : "Koordinat tidak tersedia untuk properti ini."
-    );
+    if (!property?.center) {
+      Alert.alert("Rute", "Koordinat tidak tersedia untuk properti ini.");
+      return;
+    }
+    openExternalDirections(property.center);
   };
 
   const handleContactAgent = async () => {
@@ -508,7 +519,7 @@ export default function ProductDetail() {
             <Text style={styles.cardSectionTitle}>Accessibility Analysis</Text>
           </View>
           <Text style={styles.sectionSubTitle}>
-            Nearest public facilities from PostgreSQL + ST_Distance.
+            Nearest public facilities from PostgreSQL + ST_Distance. Tap Route for the road route.
           </Text>
 
           {isLoadingFacilities ? (
@@ -542,7 +553,7 @@ export default function ProductDetail() {
 
                   <TouchableOpacity
                     style={styles.routeBtn}
-                    onPress={handleViewRoute}
+                    onPress={() => handleFacilityRoute(fac)}
                     activeOpacity={0.8}
                   >
                     <Ionicons name="git-network-outline" size={14} color="#2E7D32" />
@@ -710,6 +721,17 @@ export default function ProductDetail() {
           <Text style={styles.primaryActionText}>Contact Agent</Text>
         </TouchableOpacity>
       </View>
+
+      {property.center && (
+        <RouteModal
+          visible={!!routeFacility}
+          onClose={() => setRouteFacility(null)}
+          landId={String(property.id)}
+          propertyName={property.name}
+          propertyCoords={property.center}
+          facility={routeFacility}
+        />
+      )}
     </SafeAreaView>
   );
 }

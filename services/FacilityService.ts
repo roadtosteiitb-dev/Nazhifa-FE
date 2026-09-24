@@ -11,6 +11,21 @@ export interface NearestFacility {
   name: string;
   distanceKm: number;
   travelTimeMinutes: number;
+  lat: number;
+  lng: number;
+}
+
+export interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
+export interface RouteResult {
+  distanceKm: number;       // road distance
+  durationMinutes: number;  // driving time
+  coordinates: LatLng[];    // route line, property → destination
+  from: LatLng;
+  to: LatLng;
 }
 
 export interface ApiFacility {
@@ -40,4 +55,18 @@ export async function fetchNearestFacilities(
 ): Promise<NearestFacility[]> {
   const res = await api.get(`/lands/${landId}/facilities`);
   return res.data as NearestFacility[];
+}
+
+/**
+ * GET /api/lands/{id}/route?to_lat=&to_lng=
+ * Road route (driving) from the property to a destination, computed server-side.
+ */
+export async function fetchRoute(
+  landId: string,
+  to: { lat: number; lng: number }
+): Promise<RouteResult> {
+  const res = await api.get(`/lands/${landId}/route`, {
+    params: { to_lat: to.lat, to_lng: to.lng },
+  });
+  return res.data as RouteResult;
 }
