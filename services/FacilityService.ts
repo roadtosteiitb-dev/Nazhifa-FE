@@ -31,6 +31,7 @@ export interface RouteResult {
 export interface ApiFacility {
   id: string;
   name: string;
+  amenity: string;
   category: string;
   lat: number;
   lng: number;
@@ -40,8 +41,22 @@ export interface ApiFacility {
  * GET /api/facilities
  * Returns all public facilities with coordinates (for admin spatial map).
  */
-export async function fetchFacilities(): Promise<ApiFacility[]> {
-  const res = await api.get("/facilities");
+export async function fetchFacilities(
+  params?: {
+    amenities?: string[];
+    bbox?: { minLat: number; maxLat: number; minLng: number; maxLng: number };
+  },
+  signal?: AbortSignal
+): Promise<ApiFacility[]> {
+  const query: Record<string, string | number> = {};
+  if (params?.amenities?.length) query.amenity = params.amenities.join(",");
+  if (params?.bbox) {
+    query.min_lat = params.bbox.minLat;
+    query.max_lat = params.bbox.maxLat;
+    query.min_lng = params.bbox.minLng;
+    query.max_lng = params.bbox.maxLng;
+  }
+  const res = await api.get("/facilities", { params: query, signal });
   return res.data as ApiFacility[];
 }
 

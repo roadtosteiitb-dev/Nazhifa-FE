@@ -132,20 +132,22 @@ export interface FacilityLayerConfig {
   name: string;
   icon: string;
   color: string;
+  /** OSM `amenity` value in public_facilities (facility layers only) */
+  amenity?: string;
 }
 
 export const PROPERTY_FACILITY_LAYERS: FacilityLayerConfig[] = [
   { id: "properties",    name: "Properti",       icon: "business-outline",     color: "#2E7D32" },
-  { id: "roads",         name: "Jalan Utama",     icon: "navigate-outline",     color: "#4B5563" },
-  { id: "schools",       name: "Sekolah",         icon: "school-outline",       color: "#2E7D32" },
-  { id: "hospitals",     name: "Rumah Sakit",     icon: "medical-outline",      color: "#DC2626" },
-  { id: "clinics",       name: "Klinik",          icon: "fitness-outline",      color: "#059669" },
-  { id: "pharmacies",    name: "Apotek",          icon: "medkit-outline",       color: "#0284C7" },
-  { id: "markets",       name: "Pasar",           icon: "cart-outline",         color: "#D97706" },
-  { id: "gas_stations",  name: "SPBU",            icon: "car-outline",          color: "#EA580C" },
-  { id: "banks",         name: "Bank",            icon: "cash-outline",         color: "#16A34A" },
-  { id: "atms",          name: "ATM",             icon: "card-outline",         color: "#4F46E5" },
-  { id: "worship_places",name: "Tempat Ibadah",   icon: "home-outline",         color: "#9333EA" },
+  // "roads" is not listed: there is no road-network table in the database yet
+  { id: "schools",       name: "Sekolah",         icon: "school-outline",       color: "#DB2777", amenity: "school" },
+  { id: "hospitals",     name: "Rumah Sakit",     icon: "medical-outline",      color: "#DC2626", amenity: "hospital" },
+  { id: "clinics",       name: "Klinik",          icon: "fitness-outline",      color: "#059669", amenity: "clinic" },
+  { id: "pharmacies",    name: "Apotek",          icon: "medkit-outline",       color: "#0284C7", amenity: "pharmacy" },
+  { id: "markets",       name: "Pasar",           icon: "cart-outline",         color: "#D97706", amenity: "marketplace" },
+  { id: "gas_stations",  name: "SPBU",            icon: "car-outline",          color: "#EA580C", amenity: "fuel" },
+  { id: "banks",         name: "Bank",            icon: "cash-outline",         color: "#16A34A", amenity: "bank" },
+  { id: "atms",          name: "ATM",             icon: "card-outline",         color: "#4F46E5", amenity: "atm" },
+  { id: "worship_places",name: "Tempat Ibadah",   icon: "home-outline",         color: "#9333EA", amenity: "place_of_worship" },
 ];
 
 // ─── GIS Risk Colors (UI display only) ──────────────────────────────────────

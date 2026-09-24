@@ -4,12 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
   TextInput,
-  Image,
-  FlatList,
-  PanResponder,
-  Animated,
   Modal,
   ScrollView,
   ActivityIndicator,
@@ -17,7 +12,6 @@ import {
 import MapView, {
   Marker,
   Circle,
-  Callout,
   Polygon,
   UrlTile,
   PROVIDER_GOOGLE,
@@ -27,24 +21,24 @@ import * as Location from "expo-location";
 import Slider from "@react-native-community/slider";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import Supercluster from "supercluster";
 
 import {
   BaseMapType,
   DisasterType,
   PropertyFacilityLayerType,
-  GIS_RISK_COLORS,
   GisRiskLevel,
   DISASTER_LAYERS,
+  PROPERTY_FACILITY_LAYERS,
+  FacilityLayerConfig,
 } from "../data/riskData";
 import { fetchActiveLayers, LayerType, DisasterPolygon } from "../services/LayerService";
+import { fetchFacilities, ApiFacility } from "../services/FacilityService";
 import { FloatingMapControls } from "../components/maps/FloatingMapControls";
 import { LayerSelectionSheet } from "../components/maps/LayerSelectionSheet";
+import { PropertyPreviewCarousel } from "../components/maps/PropertyPreviewCarousel";
 import { useLands } from "../contexts/LandContext";
 import type { Land } from "../contexts/LandContext";
-
-const { height: screenHeight } = Dimensions.get("window");
-const MIN_HEIGHT = 120;
-const MAX_HEIGHT = screenHeight * 0.72;
 
 /** disasterType → base color, sourced from DISASTER_LAYERS (flood = blue, extreme_weather = purple, ...) */
 const DISASTER_COLOR_MAP: Record<string, string> = Object.fromEntries(
@@ -62,6 +56,128 @@ const QUICK_DISASTER_LAYERS: { id: DisasterType; label: string; color: string }[
     { id: "liquefaction", label: "Likuefaksi 🌍" },
   ] as { id: DisasterType; label: string }[]
 ).map((l) => ({ ...l, color: DISASTER_COLOR_MAP[l.id] }));
+
+/** Property marker look: icon per property type, color per listing (dijual / disewa) */
+const PROPERTY_TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
+  house: "home",
+  apartment: "business",
+  villa: "leaf",
+};
+const LISTING_COLOR = { sale: "#2E7D32", rent: "#2563EB" };
+
+/** Below this latitudeDelta the map is "zoomed in" → property markers switch to a big pin with price */
+const ZOOMED_IN_DELTA = 0.035;
+
+/** Hide Google's own POI / transit icons so our property & facility markers are the only pins */
+const CLEAN_MAP_STYLE = [
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+];
+
+/** Short Indonesian price label: 1,2 M · 850 Jt · 3,5 Jt/bln */
+function formatShortPrice(price: number | undefined, isRent: boolean): string {
+  if (!price) return "Harga -";
+  let label: string;
+  if (price >= 1_000_000_000) {
+    label = `${(price / 1_000_000_000).toFixed(price % 1_000_000_000 === 0 ? 0 : 1).replace(".", ",")} M`;
+  } else if (price >= 1_000_000) {
+    const jt = price / 1_000_000;
+    label = `${jt >= 100 ? Math.round(jt) : jt.toFixed(jt % 1 === 0 ? 0 : 1).replace(".", ",")} Jt`;
+  } else {
+    label = `${Math.round(price / 1000)} Rb`;
+  }
+  return isRent ? `${label}/bln` : label;
+}
+
+/** Facility layers (Sekolah, Rumah Sakit, …) keyed by OSM amenity */
+const FACILITY_LAYER_BY_AMENITY: Record<string, FacilityLayerConfig> = Object.fromEntries(
+  PROPERTY_FACILITY_LAYERS.filter((l) => l.amenity).map((l) => [l.amenity!, l])
+);
+
+/** Small round icon marker. Custom marker views are re-rendered natively only while
+ *  tracksViewChanges is true — keep it on briefly so the icon font gets drawn, then turn it
+ *  off, otherwise hundreds of markers keep re-rendering and the map stutters. */
+const FacilityMarker = React.memo(function FacilityMarker({ facility }: { facility: ApiFacility }) {
+  const layer = FACILITY_LAYER_BY_AMENITY[facility.amenity];
+  const [tracks, setTracks] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setTracks(false), 800);
+    return () => clearTimeout(t);
+  }, []);
+  if (!layer) return null;
+  return (
+    <Marker
+      coordinate={{ latitude: facility.lat, longitude: facility.lng }}
+      title={facility.name}
+      description={layer.name}
+      tracksViewChanges={tracks}
+      anchor={{ x: 0.5, y: 0.5 }}
+    >
+      <View style={styles.facilityMarkerWrap}>
+        <View style={[styles.facilityMarker, { backgroundColor: layer.color }]}>
+          <Ionicons name={layer.icon as any} size={12} color="#FFFFFF" />
+        </View>
+      </View>
+    </Marker>
+  );
+});
+
+/* ── Facility clustering (supercluster) ── */
+type FacilityPointProps = { facility: ApiFacility; amenity: string };
+type ClusterProps = { amenity: string }; // "mixed" when the cluster holds several categories
+
+const CLUSTER_MAX_ZOOM = 16; // from this zoom level on, every facility is shown individually
+
+const regionToZoom = (region: Region) =>
+  Math.max(0, Math.min(20, Math.log2(360 / Math.max(region.longitudeDelta, 1e-6))));
+
+/** Cluster bubble: size grows with the count, colored by category (gray = mixed). */
+const FacilityClusterMarker = React.memo(function FacilityClusterMarker({
+  coordinate,
+  count,
+  amenity,
+  onPress,
+}: {
+  coordinate: { latitude: number; longitude: number };
+  count: number;
+  amenity: string;
+  onPress: () => void;
+}) {
+  const layer = FACILITY_LAYER_BY_AMENITY[amenity];
+  const color = layer?.color ?? "#475569";
+  const size = count < 10 ? 30 : count < 50 ? 36 : count < 200 ? 42 : 48;
+  const [tracks, setTracks] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setTracks(false), 800);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <Marker
+      coordinate={coordinate}
+      tracksViewChanges={tracks}
+      anchor={{ x: 0.5, y: 0.5 }}
+      onPress={(e) => {
+        e.stopPropagation?.();
+        onPress();
+      }}
+    >
+      {/* Fixed 56px box (largest bubble + halo) so Android never clips the snapshot */}
+      <View style={styles.clusterWrap}>
+        <View
+          style={[
+            styles.clusterHalo,
+            { width: size + 8, height: size + 8, borderRadius: (size + 8) / 2, backgroundColor: hexToRgba(color, 0.25) },
+          ]}
+        >
+          <View style={[styles.clusterBubble, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }]}>
+            {layer && <Ionicons name={layer.icon as any} size={10} color="#FFFFFF" />}
+            <Text style={styles.clusterCount}>{count > 999 ? "999+" : count}</Text>
+          </View>
+        </View>
+      </View>
+    </Marker>
+  );
+});
 
 function hexToRgba(hex: string, alpha: number): string {
   const parsed = hex.replace("#", "");
@@ -84,82 +200,6 @@ function getDisasterPolygonColors(poly: DisasterPolygon): {
 }
 
 /* =============================================
-   PROPERTY CARD COMPONENT (UI preserved exactly)
-   ============================================= */
-const GisPropertyCard = ({ item, active, onPress, userLoc }: any) => {
-  // Derive risk level from backend data: not_affected as default when unknown
-  const riskLevel: GisRiskLevel = "not_affected";
-  const riskInfo = GIS_RISK_COLORS[riskLevel];
-
-  const price = item.price ?? 0;
-  const formattedPrice =
-    price >= 1000000000
-      ? `Rp ${(price / 1000000000).toFixed(1)} M`
-      : `Rp ${(price / 1000000).toFixed(0)} Jt`;
-
-  const district = item.location?.split(",")[0]?.trim() ?? "Yogyakarta";
-  const propType = item.isForSale ? "sale" : "rent";
-  const typeLabel =
-    item.type === "house" ? "Rumah"
-    : item.type === "apartment" ? "Apartemen"
-    : item.type === "villa" ? "Villa"
-    : "Lahan";
-
-  return (
-    <TouchableOpacity
-      style={[
-        styles.card,
-        {
-          borderColor: active ? "#2E7D32" : "#E5E7EB",
-          borderWidth: active ? 2 : 1,
-        },
-      ]}
-      onPress={onPress}
-      activeOpacity={0.9}
-    >
-      <Image
-        source={{
-          uri: item.image ?? "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=400",
-        }}
-        style={styles.cardImage}
-      />
-
-      {/* PROPERTY TYPE BADGE */}
-      <View style={styles.cardTypeBadge}>
-        <Text style={styles.cardTypeBadgeText}>
-          {propType === "sale" ? "DIJUAL" : "DISEWA"} • {typeLabel}
-        </Text>
-      </View>
-
-      {/* RISK BADGE — shown as pending if no risk level yet from backend */}
-      <View style={[styles.cardDisasterBadge, { backgroundColor: riskInfo.bg }]}>
-        <Text style={[styles.cardDisasterText, { color: riskInfo.text }]}>
-          {riskInfo.label}
-        </Text>
-      </View>
-
-      <View style={styles.cardContent}>
-        <Text numberOfLines={1} style={styles.cardTitle}>
-          {item.name}
-        </Text>
-
-        <Text style={styles.cardPrice}>{formattedPrice}</Text>
-
-        <View style={styles.locationRow}>
-          <Ionicons name="location-outline" size={13} color="#6B7280" />
-          <Text style={styles.cardLocation}>
-            {district}
-            {userLoc && item.distanceKm != null
-              ? ` • ${Number(item.distanceKm).toFixed(1)} km`
-              : ""}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-/* =============================================
    MAIN MAP SCREEN
    ============================================= */
 export default function HomeGuestMap() {
@@ -167,7 +207,7 @@ export default function HomeGuestMap() {
   const router = useRouter();
 
   // ── Property data from LandContext (already fetches from GET /api/lands) ──
-  const { lands, isLoading: isLandsLoading } = useLands();
+  const { lands } = useLands();
 
   const [userLoc, setUserLoc] = useState<any>(null);
   const [radius, setRadius] = useState(15);
@@ -269,42 +309,103 @@ export default function HomeGuestMap() {
     };
   }, [activeDisasterLayers, visibleRegion, loadLayers]);
 
-  /* DRAGGABLE BOTTOM SHEET ANIMATION */
-  const sheetHeight = useRef(new Animated.Value(screenHeight * 0.42)).current;
-  const lastHeight = useRef(screenHeight * 0.42);
+  /* Property markers are custom views: let them re-render natively for a moment after the
+     data / selection changes (so icons and the active state get drawn), then freeze them. */
+  const [propertyMarkersTrack, setPropertyMarkersTrack] = useState(true);
+  const isZoomedIn = visibleRegion.latitudeDelta < ZOOMED_IN_DELTA;
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderMove: (e, gestureState) => {
-        let newHeight = lastHeight.current - gestureState.dy;
-        if (newHeight < MIN_HEIGHT) newHeight = MIN_HEIGHT;
-        if (newHeight > MAX_HEIGHT) newHeight = MAX_HEIGHT;
-        sheetHeight.setValue(newHeight);
-      },
-      onPanResponderRelease: (e, gestureState) => {
-        let finalHeight = lastHeight.current - gestureState.dy;
-        const midHeight = screenHeight * 0.42;
-        let snapTo = midHeight;
+  /* FACILITY LAYERS (Sekolah, Rumah Sakit, …) — GET /api/facilities for the current viewport */
+  const [facilityMarkers, setFacilityMarkers] = useState<ApiFacility[]>([]);
+  const [isFacilityLoading, setIsFacilityLoading] = useState(false);
 
-        if (finalHeight < (MIN_HEIGHT + midHeight) / 2) {
-          snapTo = MIN_HEIGHT;
-        } else if (finalHeight > (midHeight + MAX_HEIGHT) / 2) {
-          snapTo = MAX_HEIGHT;
+  const activeAmenities = useMemo(
+    () =>
+      PROPERTY_FACILITY_LAYERS.filter((l) => l.amenity && activePropertyLayers.includes(l.id)).map(
+        (l) => l.amenity!
+      ),
+    [activePropertyLayers]
+  );
+
+  useEffect(() => {
+    if (activeAmenities.length === 0) {
+      setFacilityMarkers([]);
+      setIsFacilityLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      // Small padding around the visible area so short pans don't pop markers in/out
+      const latPad = visibleRegion.latitudeDelta * 0.25;
+      const lngPad = visibleRegion.longitudeDelta * 0.25;
+      setIsFacilityLoading(true);
+      try {
+        const data = await fetchFacilities(
+          {
+            amenities: activeAmenities,
+            bbox: {
+              minLat: visibleRegion.latitude - visibleRegion.latitudeDelta / 2 - latPad,
+              maxLat: visibleRegion.latitude + visibleRegion.latitudeDelta / 2 + latPad,
+              minLng: visibleRegion.longitude - visibleRegion.longitudeDelta / 2 - lngPad,
+              maxLng: visibleRegion.longitude + visibleRegion.longitudeDelta / 2 + lngPad,
+            },
+          },
+          controller.signal
+        );
+        if (!controller.signal.aborted) setFacilityMarkers(data);
+      } catch (err: any) {
+        if (err?.name !== "CanceledError" && err?.code !== "ERR_CANCELED") {
+          console.warn("Facility layer fetch error:", err);
         }
+      } finally {
+        if (!controller.signal.aborted) setIsFacilityLoading(false);
+      }
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeAmenities, visibleRegion]);
 
-        Animated.spring(sheetHeight, {
-          toValue: snapTo,
-          useNativeDriver: false,
-          tension: 40,
-          friction: 7,
-        }).start(() => {
-          lastHeight.current = snapTo;
-        });
+  /* FACILITY CLUSTERS — rebuilt when the loaded facilities change, queried per viewport */
+  const facilityIndex = useMemo(() => {
+    const index = new Supercluster<FacilityPointProps, ClusterProps>({
+      radius: 60,
+      maxZoom: CLUSTER_MAX_ZOOM,
+      map: (props) => ({ amenity: props.amenity }),
+      reduce: (acc, props) => {
+        if (acc.amenity !== props.amenity) acc.amenity = "mixed";
       },
-    })
-  ).current;
+    });
+    index.load(
+      facilityMarkers.map((f) => ({
+        type: "Feature" as const,
+        properties: { facility: f, amenity: f.amenity },
+        geometry: { type: "Point" as const, coordinates: [f.lng, f.lat] },
+      }))
+    );
+    return index;
+  }, [facilityMarkers]);
+
+  const facilityClusters = useMemo(() => {
+    if (facilityMarkers.length === 0) return [];
+    const r = visibleRegion;
+    return facilityIndex.getClusters(
+      [
+        r.longitude - r.longitudeDelta, // one extra screen on each side so edge clusters don't pop
+        r.latitude - r.latitudeDelta,
+        r.longitude + r.longitudeDelta,
+        r.latitude + r.latitudeDelta,
+      ],
+      Math.round(regionToZoom(r))
+    );
+  }, [facilityIndex, facilityMarkers.length, visibleRegion]);
+
+  /* Tap a cluster → zoom to the level where it splits apart */
+  const zoomIntoCluster = (clusterId: number, latitude: number, longitude: number) => {
+    const zoom = Math.min(facilityIndex.getClusterExpansionZoom(clusterId), CLUSTER_MAX_ZOOM + 1);
+    const delta = 360 / Math.pow(2, zoom);
+    mapRef.current?.animateToRegion({ latitude, longitude, latitudeDelta: delta, longitudeDelta: delta }, 400);
+  };
 
   /* REQUEST USER LOCATION */
   useEffect(() => {
@@ -391,10 +492,38 @@ export default function HomeGuestMap() {
     return data;
   }, [lands, search, type, sort]);
 
-  const activeFiltersCount =
-    (type !== "all" ? 1 : 0) +
-    (selectedRiskFilter !== "all" ? 1 : 0) +
-    (radius !== 15 ? 1 : 0);
+  /* Properties that can be shown on the map (preview carousel swipes through these) */
+  const mappableProperties = useMemo(
+    () => (activePropertyLayers.includes("properties") ? filtered.filter((l) => !!l.center) : []),
+    [filtered, activePropertyLayers]
+  );
+  const previewVisible = !!activeId && mappableProperties.some((l) => l.id === activeId);
+
+  /* Select a property and move the camera so its pin sits above the preview card */
+  const focusProperty = useCallback(
+    (id: string) => {
+      const land = mappableProperties.find((l) => l.id === id);
+      setActiveId(id);
+      if (!land?.center) return;
+      const delta = 0.02;
+      mapRef.current?.animateToRegion(
+        {
+          latitude: land.center.latitude - delta * 0.28,
+          longitude: land.center.longitude,
+          latitudeDelta: delta,
+          longitudeDelta: delta,
+        },
+        450
+      );
+    },
+    [mappableProperties]
+  );
+
+  useEffect(() => {
+    setPropertyMarkersTrack(true);
+    const t = setTimeout(() => setPropertyMarkersTrack(false), 800);
+    return () => clearTimeout(t);
+  }, [filtered, activeId, isZoomedIn]);
 
   const activeLayersTotalCount = activePropertyLayers.length + activeDisasterLayers.length;
 
@@ -513,9 +642,14 @@ export default function HomeGuestMap() {
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         mapType={baseMap === "satellite" ? "satellite" : "standard"}
+        customMapStyle={baseMap === "standard" ? CLEAN_MAP_STYLE : []}
         style={StyleSheet.absoluteFillObject}
         showsUserLocation
         onRegionChangeComplete={setVisibleRegion}
+        onPress={(e) => {
+          // iOS also reports marker taps here — only close on a real map tap
+          if ((e.nativeEvent as any).action !== "marker-press") setActiveId(null);
+        }}
       >
         {/* OSM TILE LAYER IF SELECTED */}
         {baseMap === "osm" && (
@@ -556,94 +690,113 @@ export default function HomeGuestMap() {
           filtered.map((l) => {
             if (!l.center) return null; // skip properties without coordinates
             const isActive = activeId === l.id;
-            const price = l.price ?? 0;
-            const priceLabel =
-              price >= 1000000000
-                ? `${(price / 1000000000).toFixed(1)}M`
-                : `${(price / 1000000).toFixed(0)} Jt`;
+            const isRent = l.isForSale === false;
+            const color = isRent ? LISTING_COLOR.rent : LISTING_COLOR.sale;
+            const typeIcon = PROPERTY_TYPE_ICON[l.type ?? ""] ?? "home";
 
             return (
               <Marker
                 key={l.id}
                 coordinate={l.center}
-                onPress={() => {
-                  setActiveId(l.id);
-                  mapRef.current?.animateToRegion(
-                    { ...l.center!, latitudeDelta: 0.02, longitudeDelta: 0.02 },
-                    500
-                  );
+                anchor={isZoomedIn ? { x: 0.5, y: 1 } : { x: 0.5, y: 0.5 }}
+                tracksViewChanges={propertyMarkersTrack}
+                zIndex={isActive ? 999 : 1}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  focusProperty(l.id);
                 }}
               >
-                {/* COMPACT PROPERTY MARKER */}
-                <View
-                  style={[
-                    styles.compactMarkerPin,
-                    {
-                      backgroundColor: isActive ? "#2E7D32" : "#FFFFFF",
-                      borderColor: isActive ? "#2E7D32" : "#E5E7EB",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.compactMarkerPrice,
-                      { color: isActive ? "#FFFFFF" : "#111827" },
-                    ]}
-                  >
-                    {priceLabel}
-                  </Text>
-                  <View style={[styles.disasterIndicatorDot, { backgroundColor: "#9CA3AF" }]} />
-                </View>
-
-                {/* PROPERTY CALLOUT */}
-                <Callout
-                  tooltip
-                  onPress={() =>
-                    router.push({
-                      pathname: "/product/[id]",
-                      params: { id: l.id },
-                    })
-                  }
-                >
-                  <View style={styles.calloutBubble}>
-                    <Image
-                      source={{
-                        uri: l.image ?? "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=400",
-                      }}
-                      style={styles.calloutImage}
-                    />
-
-                    <View style={styles.calloutBody}>
-                      <View style={styles.calloutTitleRow}>
-                        <Text numberOfLines={1} style={styles.calloutTitle}>
-                          {l.name}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.calloutPrice}>
-                        Rp {price.toLocaleString("id-ID")}
+                {/* PROPERTY MARKER
+                    - zoomed out: small rounded square (same footprint as facility markers) with a
+                      colored halo so it still pops out between other icons
+                    - zoomed in: big pin + price label
+                    icon = property type, color = dijual (hijau) / disewa (biru).
+                    Fixed-size wrappers so Android never clips the marker snapshot. */}
+                {isZoomedIn ? (
+                  <View style={styles.propertyPinWrap}>
+                    <View style={[styles.propertyPriceChip, { borderColor: color }, isActive && { backgroundColor: color }]}>
+                      <Text style={[styles.propertyPriceText, { color: isActive ? "#FFFFFF" : color }]} numberOfLines={1}>
+                        {formatShortPrice(l.price, isRent)}
                       </Text>
-
-                      <Text style={styles.calloutDistrict}>
-                        📍 {l.location?.split(",")[0]?.trim() ?? "Yogyakarta"}
-                      </Text>
-
-                      <Text numberOfLines={2} style={styles.calloutDesc}>
-                        {l.description ?? "Lihat detail properti untuk informasi lengkap."}
-                      </Text>
-
-                      <View style={styles.viewDetailBtn}>
-                        <Text style={styles.viewDetailBtnText}>View Detail</Text>
-                        <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
+                    </View>
+                    <View
+                      style={[
+                        styles.propertyPinHead,
+                        { backgroundColor: color },
+                        isActive && styles.propertyMarkerActive,
+                      ]}
+                    >
+                      <Ionicons name={typeIcon} size={17} color="#FFFFFF" />
+                    </View>
+                    <View style={[styles.propertyPinTail, { borderTopColor: isActive ? "#111827" : color }]} />
+                  </View>
+                ) : (
+                  <View style={styles.propertyMarkerWrap}>
+                    <View style={[styles.propertyHalo, { backgroundColor: hexToRgba(color, isActive ? 0.45 : 0.28) }]}>
+                      <View
+                        style={[
+                          styles.propertyMarker,
+                          { backgroundColor: color },
+                          isActive && styles.propertyMarkerActive,
+                        ]}
+                      >
+                        <Ionicons name={typeIcon} size={12} color="#FFFFFF" />
                       </View>
                     </View>
-                    <View style={styles.calloutArrow} />
                   </View>
-                </Callout>
+                )}
               </Marker>
             );
           })}
+
+        {/* FACILITY MARKERS — active facility layers from the Layer Panel, clustered */}
+        {facilityClusters.map((c) => {
+          const [lng, lat] = c.geometry.coordinates;
+          if ("cluster" in c.properties && c.properties.cluster) {
+            const { cluster_id, point_count, amenity } = c.properties as Supercluster.ClusterProperties & ClusterProps;
+            return (
+              <FacilityClusterMarker
+                key={`cl-${cluster_id}-${point_count}-${amenity}`}
+                coordinate={{ latitude: lat, longitude: lng }}
+                count={point_count}
+                amenity={amenity}
+                onPress={() => zoomIntoCluster(cluster_id, lat, lng)}
+              />
+            );
+          }
+          const f = (c.properties as FacilityPointProps).facility;
+          return <FacilityMarker key={`fac-${f.id}`} facility={f} />;
+        })}
       </MapView>
+
+      {/* PROPERTY PREVIEW (interactive popup) */}
+      {previewVisible && (
+        <PropertyPreviewCarousel
+          properties={mappableProperties}
+          activeId={activeId!}
+          onChangeActive={focusProperty}
+          onClose={() => setActiveId(null)}
+          onOpenDetail={(id) => router.push({ pathname: "/product/[id]", params: { id } })}
+        />
+      )}
+
+      {/* PROPERTY MARKER LEGEND */}
+      {activePropertyLayers.includes("properties") && (
+        <View style={styles.propertyLegend} pointerEvents="none">
+          <View style={[styles.propertyLegendDot, { backgroundColor: LISTING_COLOR.sale }]} />
+          <Text style={styles.propertyLegendText}>Dijual</Text>
+          <View style={[styles.propertyLegendDot, { backgroundColor: LISTING_COLOR.rent, marginLeft: 8 }]} />
+          <Text style={styles.propertyLegendText}>Disewa</Text>
+        </View>
+      )}
+
+      {/* FACILITY LOADING PILL */}
+      {isFacilityLoading && (
+        <View style={styles.facilityLoadingPill}>
+          <ActivityIndicator size="small" color="#2E7D32" />
+          <Text style={styles.facilityLoadingText}>Memuat fasilitas…</Text>
+        </View>
+      )}
 
       {/* LAYER ERROR BANNER */}
       {layerError && (
@@ -658,75 +811,6 @@ export default function HomeGuestMap() {
           </TouchableOpacity>
         </View>
       )}
-
-      {/* DRAGGABLE BOTTOM SHEET */}
-      <Animated.View style={[styles.sheet, { height: sheetHeight }]}>
-        {/* DRAG HANDLE & HEADER */}
-        <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
-          <View style={styles.dragHandle} />
-
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetHeaderCol}>
-              <Text style={styles.totalPropertiesText}>
-                Total Properties:{" "}
-                <Text style={{ color: "#2E7D32" }}>
-                  {isLandsLoading ? "..." : filtered.length}
-                </Text>
-              </Text>
-              <Text style={styles.activeMetaText}>
-                Active Filters: {activeFiltersCount} • Active Layers: {activeLayersTotalCount}
-              </Text>
-            </View>
-
-            {(type !== "all" || sort !== "distance" || radius !== 15 || selectedRiskFilter !== "all") && (
-              <TouchableOpacity
-                onPress={() => {
-                  setType("all");
-                  setSort("distance");
-                  setRadius(15);
-                  setSelectedRiskFilter("all");
-                }}
-              >
-                <Text style={styles.resetFiltersText}>Reset</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* PROPERTY LIST */}
-        {isLandsLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2E7D32" />
-            <Text style={styles.loadingText}>Memuat data properti dari PostgreSQL...</Text>
-          </View>
-        ) : filtered.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="search-outline" size={32} color="#9CA3AF" />
-            <Text style={styles.emptyText}>Tidak ada properti ditemukan</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={filtered}
-            keyExtractor={(i) => i.id.toString()}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-            renderItem={({ item }) => (
-              <GisPropertyCard
-                item={item}
-                active={activeId === item.id}
-                userLoc={userLoc}
-                onPress={() => {
-                  setActiveId(item.id);
-                  router.push({
-                    pathname: "/product/[id]",
-                    params: { id: item.id },
-                  });
-                }}
-              />
-            )}
-          />
-        )}
-      </Animated.View>
 
       {/* LAYER SELECTION PANEL */}
       <LayerSelectionSheet
@@ -874,6 +958,79 @@ export default function HomeGuestMap() {
    STYLES
 ========================= */
 const styles = StyleSheet.create({
+  clusterWrap: {
+    width: 58,
+    height: 58,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clusterHalo: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clusterBubble: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  clusterCount: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: -1,
+  },
+  facilityMarkerWrap: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  facilityMarker: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  facilityLoadingPill: {
+    position: "absolute",
+    top: 158,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  propertyLegend: {
+    position: "absolute",
+    top: 158,
+    left: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.95)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  propertyLegendDot: { width: 10, height: 10, borderRadius: 5, marginRight: 4 },
+  propertyLegendText: { fontSize: 11, fontWeight: "600", color: "#374151" },
+  facilityLoadingText: { fontSize: 12, color: "#374151", fontWeight: "600" },
   topContainer: {
     position: "absolute",
     top: 50,
@@ -907,58 +1064,68 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  compactMarkerPin: {
-    flexDirection: "row",
+  propertyMarker: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 5,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
-  compactMarkerPrice: {
+  propertyMarkerActive: {
+    borderColor: "#111827",
+  },
+  propertyMarkerWrap: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  propertyHalo: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  propertyPinWrap: {
+    width: 120,
+    height: 70,
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  propertyPriceChip: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginBottom: 3,
+    maxWidth: 118,
+  },
+  propertyPriceText: {
     fontSize: 11,
     fontWeight: "800",
   },
-  disasterIndicatorDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  calloutBubble: {
-    width: 220,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    overflow: "hidden",
-    elevation: 5,
-  },
-  calloutImage: {
-    width: "100%",
-    height: 95,
-    backgroundColor: "#E5E7EB",
-  },
-  calloutBody: {
-    padding: 10,
-  },
-  calloutTitleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  propertyPinHead: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
     alignItems: "center",
-    marginBottom: 4,
+    justifyContent: "center",
   },
-  calloutTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#111827",
-    flex: 1,
-    marginRight: 4,
+  propertyPinTail: {
+    width: 0,
+    height: 0,
+    marginTop: -2,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
   },
   miniBadge: {
     paddingHorizontal: 6,
@@ -969,123 +1136,9 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
   },
-  calloutPrice: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#2E7D32",
-    marginBottom: 2,
-  },
-  calloutDistrict: {
-    fontSize: 11,
-    color: "#6B7280",
-    marginBottom: 4,
-  },
-  calloutDesc: {
-    fontSize: 10,
-    color: "#6B7280",
-    lineHeight: 14,
-    marginBottom: 8,
-  },
-  viewDetailBtn: {
-    backgroundColor: "#2E7D32",
-    paddingVertical: 6,
-    borderRadius: 6,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 4,
-  },
-  viewDetailBtnText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  calloutArrow: {
-    backgroundColor: "transparent",
-    borderColor: "transparent",
-    borderTopColor: "#FFFFFF",
-    borderWidth: 8,
-    alignSelf: "center",
-    marginTop: -1,
-  },
-  sheet: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-  },
-  dragHandleArea: {
-    paddingTop: 10,
-    paddingBottom: 10,
-    alignItems: "center",
-  },
-  dragHandle: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#D1D5DB",
-    marginBottom: 8,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-    paddingHorizontal: 18,
-  },
-  sheetHeaderCol: {
-    flex: 1,
-  },
-  totalPropertiesText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  activeMetaText: {
-    fontSize: 11,
-    color: "#6B7280",
-    marginTop: 2,
-  },
-  resetFiltersText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#2E7D32",
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingBottom: 24,
-  },
-  loadingText: {
-    fontSize: 13,
-    color: "#6B7280",
-    textAlign: "center",
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingBottom: 24,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: "#9CA3AF",
-    textAlign: "center",
-  },
   errorBanner: {
     position: "absolute",
-    bottom: screenHeight * 0.42 + 8,
+    bottom: 24,
     left: 16,
     right: 16,
     zIndex: 20,
@@ -1113,72 +1166,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 11,
     fontWeight: "700",
-  },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    marginBottom: 12,
-    overflow: "hidden",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-  },
-  cardImage: {
-    width: "100%",
-    height: 130,
-    backgroundColor: "#E5E7EB",
-  },
-  cardTypeBadge: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    backgroundColor: "rgba(17, 24, 39, 0.75)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  cardTypeBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  cardDisasterBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  cardDisasterText: {
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  cardContent: {
-    padding: 12,
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  cardPrice: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#2E7D32",
-    marginTop: 4,
-  },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  cardLocation: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginLeft: 3,
   },
   modalOverlay: {
     flex: 1,
