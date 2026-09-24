@@ -51,6 +51,18 @@ const DISASTER_COLOR_MAP: Record<string, string> = Object.fromEntries(
   DISASTER_LAYERS.map((layer) => [layer.id, layer.color])
 );
 
+/** Quick layer chips on top of the map — colors match the polygons drawn for each layer */
+const QUICK_DISASTER_LAYERS: { id: DisasterType; label: string; color: string }[] = (
+  [
+    { id: "flood", label: "Banjir 🌊" },
+    { id: "landslide", label: "Longsor ⛰️" },
+    { id: "eruption", label: "Erupsi Gunung 🌋" },
+    { id: "extreme_weather", label: "Cuaca Ekstrem ⚡" },
+    { id: "drought", label: "Kekeringan 🌵" },
+    { id: "liquefaction", label: "Likuefaksi 🌍" },
+  ] as { id: DisasterType; label: string }[]
+).map((l) => ({ ...l, color: DISASTER_COLOR_MAP[l.id] }));
+
 function hexToRgba(hex: string, alpha: number): string {
   const parsed = hex.replace("#", "");
   const r = parseInt(parsed.substring(0, 2), 16);
@@ -453,12 +465,7 @@ export default function HomeGuestMap() {
       {/* QUICK INTERACTIVE DISASTER LAYER SWITCHER */}
       <View style={{ position: "absolute", top: 110, left: 16, right: 16, zIndex: 10 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {[
-            { id: "flood" as DisasterType, label: "Banjir 🌊", color: "#3B82F6" },
-            { id: "landslide" as DisasterType, label: "Longsor ⛰️", color: "#EAB308" },
-            { id: "eruption" as DisasterType, label: "Erupsi Gunung 🌋", color: "#EF4444" },
-            { id: "extreme_weather" as DisasterType, label: "Cuaca Ekstrem ⚡", color: "#8B5CF6" },
-          ].map((layer) => {
+          {QUICK_DISASTER_LAYERS.map((layer) => {
             const isActive = activeDisasterLayers.includes(layer.id);
             return (
               <TouchableOpacity
