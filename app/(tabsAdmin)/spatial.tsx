@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
@@ -25,10 +26,10 @@ const TEXT_SECONDARY = "#64748B";
 type LayerType = "properties" | "facilities" | "flood" | "landslide";
 
 const layerConfig: Record<LayerType, { label: string; color: string; icon: string }> = {
-  properties: { label: "Properties", color: PRIMARY, icon: "business" },
-  facilities: { label: "Public Facilities", color: "#0891B2", icon: "medkit" },
-  flood: { label: "Flood Hazard", color: "#3B82F6", icon: "water" },
-  landslide: { label: "Landslide Hazard", color: "#92400E", icon: "warning" },
+  properties: { label: "admin.spatial.properties", color: PRIMARY, icon: "business" },
+  facilities: { label: "admin.spatial.facilities", color: "#0891B2", icon: "medkit" },
+  flood: { label: "admin.spatial.flood", color: "#3B82F6", icon: "water" },
+  landslide: { label: "admin.spatial.landslide", color: "#92400E", icon: "warning" },
 };
 
 interface SelectedPoint {
@@ -41,6 +42,7 @@ interface SelectedPoint {
 }
 
 export default function SpatialDataScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [activeLayers, setActiveLayers] = useState<LayerType[]>(["properties", "facilities", "flood", "landslide"]);
   const [selectedMarker, setSelectedMarker] = useState<SelectedPoint | null>(null);
@@ -98,8 +100,8 @@ export default function SpatialDataScreen() {
           <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.headerTitle}>Spatial Data</Text>
-          <Text style={styles.headerSubtitle}>GIS Property Map View</Text>
+          <Text style={styles.headerTitle}>{t("admin.spatial.title")}</Text>
+          <Text style={styles.headerSubtitle}>{t("admin.spatial.subtitle")}</Text>
         </View>
       </View>
 
@@ -115,7 +117,7 @@ export default function SpatialDataScreen() {
             >
               <Ionicons name={cfg.icon as any} size={14} color={isActive ? "#fff" : cfg.color} />
               <Text style={[styles.layerChipText, isActive && { color: "#fff" }, !isActive && { color: cfg.color }]}>
-                {cfg.label}
+                {t(cfg.label)}
               </Text>
             </TouchableOpacity>
           );
@@ -223,12 +225,12 @@ export default function SpatialDataScreen() {
       )}
 
       <View style={styles.legend}>
-        <Text style={styles.legendTitle}>Legend</Text>
+        <Text style={styles.legendTitle}>{t("admin.spatial.legend")}</Text>
         <View style={styles.legendRow}>
           {(Object.keys(layerConfig) as LayerType[]).map((type) => (
             <View key={type} style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: layerConfig[type].color }]} />
-              <Text style={styles.legendText}>{layerConfig[type].label}</Text>
+              <Text style={styles.legendText}>{t(layerConfig[type].label)}</Text>
             </View>
           ))}
         </View>

@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Image,
   Modal,
@@ -19,6 +20,7 @@ import { useLands } from "../../contexts/LandContext";
    PROPERTY CARD
 ========================= */
 const PropertyCard = ({ land, viewMode, onPress, theme }: any) => {
+  const { t } = useTranslation();
   const isGrid = viewMode === "grid";
 
   return (
@@ -36,13 +38,13 @@ const PropertyCard = ({ land, viewMode, onPress, theme }: any) => {
 
         <View style={[styles.statusBadge, { backgroundColor: land.isForSale ? "#10B981" : "#F59E0B" }]}>
           <Text style={styles.statusBadgeText}>
-            {land.isForSale ? "DIJUAL" : "DISEWA"}
+            {land.isForSale ? t("property.forSaleBadge") : t("property.forRentBadge")}
           </Text>
         </View>
 
         {land.status === "Sold" && (
           <View style={styles.soldOverlay}>
-            <Text style={styles.soldOverlayText}>TERJUAL</Text>
+            <Text style={styles.soldOverlayText}>{t("property.soldBadge")}</Text>
           </View>
         )}
       </View>
@@ -71,8 +73,9 @@ const PropertyCard = ({ land, viewMode, onPress, theme }: any) => {
    MAIN PAGE
 ========================= */
 export default function HomeGuest() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
-  const { lands, setLands } = useLands();
+  const { lands } = useLands();
   const router = useRouter();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,43 +86,6 @@ export default function HomeGuest() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [isFilterVisible, setFilterVisible] = useState(false);
 
-  /* Dummy Data */
-  useEffect(() => {
-    if (lands.length === 0) {
-      setLands([
-        {
-          id: "1",
-          name: "Sawah Subur Mlati",
-          location: "Sleman, Yogyakarta",
-          price: 120000000,
-          isForSale: true,
-          rating: 4.8,
-          image:
-            "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800",
-        },
-        {
-          id: "2",
-          name: "Lahan Strategis Kalasan",
-          location: "Kalasan, Sleman",
-          price: 85000000,
-          isForSale: true,
-          rating: 4.6,
-          image:
-            "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800",
-        },
-        {
-          id: "3",
-          name: "Rumah Klasik Jogja",
-          location: "Umbulharjo, Yogyakarta",
-          price: 65000000,
-          isForSale: false,
-          rating: 4.7,
-          image:
-            "https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=800",
-        },
-      ]);
-    }
-  }, [lands.length, setLands]);
 
   /* =========================
      FILTER + SORT (FIX)
@@ -177,7 +143,7 @@ export default function HomeGuest() {
             <Text style={[styles.brandTitle, { color: theme.primary }]}>
               titikhuni
             </Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Jelajahi properti terbaik</Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{t("home.exploreBest")}</Text>
           </View>
 
           <View style={styles.headerActions}>
@@ -208,7 +174,7 @@ export default function HomeGuest() {
           <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}>
             <Ionicons name="search-outline" size={20} color={theme.textSecondary} />
             <TextInput
-              placeholder="Cari properti..."
+              placeholder={t("home.searchProperty")}
               placeholderTextColor={theme.textLight}
               style={[styles.searchInput, { color: theme.text }]}
               value={searchQuery}
@@ -224,9 +190,9 @@ export default function HomeGuest() {
           contentContainerStyle={styles.categoriesContainer}
         >
           {[
-            { id: "all", label: "Semua", icon: "grid-outline" },
-            { id: "sale", label: "Dijual", icon: "cash-outline" },
-            { id: "rent", label: "Disewa", icon: "key-outline" },
+            { id: "all", label: t("common.all"), icon: "grid-outline" },
+            { id: "sale", label: t("property.forSale"), icon: "cash-outline" },
+            { id: "rent", label: t("property.forRent"), icon: "key-outline" },
           ].map((cat) => {
             const isActive = selectedStatus === cat.id;
             return (
@@ -268,13 +234,13 @@ export default function HomeGuest() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
             <Ionicons name="navigate-circle" size={16} color={theme.primary} />
             <Text style={{ fontSize: 12, fontWeight: "800", color: theme.text }}>
-              Radius Spasial (PostGIS ST_DWithin)
+              {t("home.spatialRadius")}
             </Text>
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
             {[
-              { id: "all", label: "Semua Radius" },
+              { id: "all", label: t("home.allRadius") },
               { id: 2, label: "< 2 km" },
               { id: 5, label: "< 5 km" },
               { id: 10, label: "< 10 km" },
@@ -337,14 +303,14 @@ export default function HomeGuest() {
         onPress={() => router.push("/maps")}
       >
         <Ionicons name="map-outline" size={22} color="#FFF" />
-        <Text style={styles.mapText}>Lihat Peta</Text>
+        <Text style={styles.mapText}>{t("home.viewMap")}</Text>
       </TouchableOpacity>
 
       {/* FILTER MODAL */}
       <Modal transparent visible={isFilterVisible} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.filterSheet, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Filter & Urutkan</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t("home.filterSort")}</Text>
 
             <View style={styles.chipRow}>
               {["all", "sale", "rent"].map((s) => (
@@ -361,7 +327,7 @@ export default function HomeGuest() {
                   onPress={() => setSelectedStatus(s as any)}
                 >
                   <Text style={{ color: selectedStatus === s ? "#FFF" : theme.text, fontWeight: "600" }}>
-                    {s === "all" ? "Semua" : s === "sale" ? "Dijual" : "Disewa"}
+                    {s === "all" ? t("common.all") : s === "sale" ? t("property.forSale") : t("property.forRent")}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -369,8 +335,8 @@ export default function HomeGuest() {
 
             <View style={styles.chipRow}>
               {[
-                { key: "lowToHigh", label: "Termurah" },
-                { key: "highToLow", label: "Termahal" },
+                { key: "lowToHigh", label: t("home.cheapest") },
+                { key: "highToLow", label: t("home.mostExpensive") },
               ].map((o) => (
                 <TouchableOpacity
                   key={o.key}
@@ -395,7 +361,7 @@ export default function HomeGuest() {
               style={[styles.applyButton, { backgroundColor: theme.primary }]}
               onPress={() => setFilterVisible(false)}
             >
-              <Text style={styles.applyText}>Terapkan</Text>
+              <Text style={styles.applyText}>{t("common.apply")}</Text>
             </TouchableOpacity>
           </View>
         </View>

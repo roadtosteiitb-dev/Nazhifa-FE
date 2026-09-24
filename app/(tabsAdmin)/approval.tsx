@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState, useMemo } from "react";
 import {
   View,
@@ -30,6 +31,7 @@ const TEXT_SECONDARY = "#64748B";
 type FilterType = "all" | "pending" | "accepted" | "declined";
 
 export default function ApprovalScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { lands = [], updateLandStatus } = useLands() || {};
 
@@ -61,16 +63,16 @@ export default function ApprovalScreen() {
   }, [lands, search, filter]);
 
   const handleAccept = (id: string) => {
-    Alert.alert("Konfirmasi", "Setujui properti ini?", [
-      { text: "Batal", style: "cancel" },
+    Alert.alert(t("common.confirm"), t("homeAdmin.approveConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Setujui",
+        text: t("homeAdmin.approve"),
         onPress: async () => {
           try {
             if (updateLandStatus) await updateLandStatus(id, "Approved");
             if (selectedItem?.id === id) setSelectedItem(null);
           } catch {
-            Alert.alert("Gagal", "Tidak dapat menyetujui properti. Coba lagi.");
+            Alert.alert(t("common.failed"), t("admin.approveFailed"));
           }
         },
       },
@@ -84,31 +86,31 @@ export default function ApprovalScreen() {
 
   const submitRejection = async () => {
     if (!rejectingId) return;
-    const reason = rejectionReasonInput.trim() || "Lokasi properti tidak sesuai.";
+    const reason = rejectionReasonInput.trim() || t("admin.defaultRejectReason");
 
     try {
       if (updateLandStatus) await updateLandStatus(rejectingId, "Rejected", reason);
       if (selectedItem?.id === rejectingId) setSelectedItem(null);
       setRejectingId(null);
       setRejectionReasonInput("");
-      Alert.alert("Sukses", "Properti berhasil ditolak.");
+      Alert.alert(t("common.success"), t("admin.rejectSuccess"));
     } catch {
-      Alert.alert("Gagal", "Tidak dapat menolak properti. Coba lagi.");
+      Alert.alert(t("common.failed"), t("admin.rejectFailed"));
     }
   };
 
   const filters: { label: string; value: FilterType }[] = [
-    { label: "Semua", value: "all" },
-    { label: "Pending", value: "pending" },
-    { label: "Disetujui", value: "accepted" },
-    { label: "Ditolak", value: "declined" },
+    { label: t("common.all"), value: "all" },
+    { label: t("homeAdmin.pending"), value: "pending" },
+    { label: t("homeAdmin.approved"), value: "accepted" },
+    { label: t("homeAdmin.rejected"), value: "declined" },
   ];
 
   const getStatusInfo = (status: string) => {
     switch (status) {
-      case "Approved": return { bg: "#DCFCE7", text: SUCCESS, label: "Disetujui" };
-      case "Rejected": return { bg: "#FEE2E2", text: DANGER, label: "Ditolak" };
-      default: return { bg: "#FEF3C7", text: "#D97706", label: "Pending" };
+      case "Approved": return { bg: "#DCFCE7", text: SUCCESS, label: t("homeAdmin.approved") };
+      case "Rejected": return { bg: "#FEE2E2", text: DANGER, label: t("homeAdmin.rejected") };
+      default: return { bg: "#FEF3C7", text: "#D97706", label: t("homeAdmin.pending") };
     }
   };
 
@@ -125,7 +127,7 @@ export default function ApprovalScreen() {
             <TouchableOpacity onPress={() => setSelectedItem(null)} style={styles.backBtn}>
               <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
             </TouchableOpacity>
-            <Text style={styles.detailHeaderTitle}>Detail Pengajuan</Text>
+            <Text style={styles.detailHeaderTitle}>{t("admin.approval.detailTitle")}</Text>
             <View style={{ width: 42 }} />
           </View>
 
@@ -150,7 +152,7 @@ export default function ApprovalScreen() {
             {/* Rejection Reason display if rejected */}
             {currentRealTimeItem.status === "Rejected" && currentRealTimeItem.rejectionReason && (
               <View style={styles.rejectionReasonBox}>
-                <Text style={styles.rejectionReasonTitle}>Alasan Penolakan:</Text>
+                <Text style={styles.rejectionReasonTitle}>{t("homeOwner.rejectionReason")}</Text>
                 <Text style={styles.rejectionReasonText}>{currentRealTimeItem.rejectionReason}</Text>
               </View>
             )}
@@ -158,18 +160,18 @@ export default function ApprovalScreen() {
             <View style={styles.divider} />
 
             {/* Information Grid */}
-            <Text style={styles.sectionHeader}>Informasi Umum</Text>
+            <Text style={styles.sectionHeader}>{t("admin.approval.generalInfo")}</Text>
             <View style={styles.infoGrid}>
               <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Pengaju / Pemilik</Text>
+                <Text style={styles.infoLabel}>{t("admin.approval.submitter")}</Text>
                 <Text style={styles.infoValue}>{currentRealTimeItem.owner}</Text>
               </View>
               <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Lokasi</Text>
+                <Text style={styles.infoLabel}>{t("productDetail.location")}</Text>
                 <Text style={styles.infoValue}>{currentRealTimeItem.location}</Text>
               </View>
               <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Tanggal Masuk</Text>
+                <Text style={styles.infoLabel}>{t("admin.approval.submittedAt")}</Text>
                 <Text style={styles.infoValue}>{currentRealTimeItem.createdAt || "2026-07-22"}</Text>
               </View>
             </View>
@@ -177,7 +179,7 @@ export default function ApprovalScreen() {
             <View style={styles.divider} />
 
             {/* Sertifikat & Berkas Legalitas */}
-            <Text style={styles.sectionHeader}>Sertifikat & Berkas Legalitas</Text>
+            <Text style={styles.sectionHeader}>{t("admin.approval.certificateSection")}</Text>
             <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#F8FAFC", padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#E2E8F0", marginBottom: 16 }}>
               <Image
                 source={{ uri: currentRealTimeItem.certificateImage || "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=800&q=80" }}
@@ -185,22 +187,22 @@ export default function ApprovalScreen() {
               />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 13, fontWeight: "800", color: "#0F172A" }}>
-                  Sertifikat Kepemilikan ({currentRealTimeItem.certificate || "SHM"})
+                  {t("admin.approval.ownershipCertificate", { type: currentRealTimeItem.certificate || "SHM" })}
                 </Text>
                 <Text style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>
-                  Dokumen resmi yang diunggah oleh pemilik
+                  {t("admin.approval.uploadedByOwner")}
                 </Text>
               </View>
               <TouchableOpacity
                 style={{ backgroundColor: "#2E7D32", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
                 onPress={() => setShowCertModal(true)}
               >
-                <Text style={{ color: "#FFF", fontSize: 11, fontWeight: "800" }}>Inspeksi</Text>
+                <Text style={{ color: "#FFF", fontSize: 11, fontWeight: "800" }}>{t("admin.approval.inspect")}</Text>
               </TouchableOpacity>
             </View>
 
             {/* Description */}
-            <Text style={styles.sectionHeader}>Deskripsi Properti</Text>
+            <Text style={styles.sectionHeader}>{t("addProperty.description")}</Text>
             <Text style={styles.descriptionText}>{currentRealTimeItem.description}</Text>
 
             {/* Action Buttons if Pending */}
@@ -211,7 +213,7 @@ export default function ApprovalScreen() {
                   onPress={() => handleDecline(currentRealTimeItem.id)}
                 >
                   <Ionicons name="close-circle-outline" size={18} color={DANGER} />
-                  <Text style={[styles.btnText, { color: DANGER }]}>Tolak</Text>
+                  <Text style={[styles.btnText, { color: DANGER }]}>{t("homeAdmin.reject")}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -219,7 +221,7 @@ export default function ApprovalScreen() {
                   onPress={() => handleAccept(currentRealTimeItem.id)}
                 >
                   <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                  <Text style={[styles.btnText, { color: "#fff" }]}>Setujui</Text>
+                  <Text style={[styles.btnText, { color: "#fff" }]}>{t("homeAdmin.approve")}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -234,13 +236,13 @@ export default function ApprovalScreen() {
                 <View style={[styles.modalIconWrap, { backgroundColor: "#EF444415" }]}>
                   <Ionicons name="close-circle" size={22} color="#EF4444" />
                 </View>
-                <Text style={styles.modalTitle}>Tolak Pengajuan</Text>
+                <Text style={styles.modalTitle}>{t("admin.rejectSubmission")}</Text>
               </View>
 
-              <Text style={styles.fieldLabel}>Alasan Penolakan</Text>
+              <Text style={styles.fieldLabel}>{t("admin.rejectionReason")}</Text>
               <TextInput
                 style={[styles.modalInput, { height: 80, textAlignVertical: "top" }]}
-                placeholder="Contoh: Lokasi properti tidak sesuai dengan alamat..."
+                placeholder={t("admin.rejectionPlaceholder")}
                 value={rejectionReasonInput}
                 onChangeText={setRejectionReasonInput}
                 multiline
@@ -252,13 +254,13 @@ export default function ApprovalScreen() {
                   style={styles.cancelBtn}
                   onPress={() => setRejectingId(null)}
                 >
-                  <Text style={styles.cancelBtnText}>Batal</Text>
+                  <Text style={styles.cancelBtnText}>{t("common.cancel")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.confirmBtn, { backgroundColor: "#EF4444" }]}
                   onPress={submitRejection}
                 >
-                  <Text style={styles.confirmBtnText}>Tolak</Text>
+                  <Text style={styles.confirmBtnText}>{t("homeAdmin.reject")}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -271,7 +273,7 @@ export default function ApprovalScreen() {
             <TouchableOpacity style={{ position: "absolute", top: 40, right: 20, zIndex: 10, padding: 8 }} onPress={() => setShowCertModal(false)}>
               <Ionicons name="close-circle" size={36} color="#FFF" />
             </TouchableOpacity>
-            <Text style={{ color: "#FFF", fontSize: 16, fontWeight: "800", marginBottom: 16 }}>Inspeksi Dokumen Sertifikat (SHM)</Text>
+            <Text style={{ color: "#FFF", fontSize: 16, fontWeight: "800", marginBottom: 16 }}>{t("admin.approval.inspectTitle")}</Text>
             <Image
               source={{ uri: currentRealTimeItem?.certificateImage || "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=800&q=80" }}
               style={{ width: "100%", height: "70%", borderRadius: 12 }}
@@ -290,7 +292,7 @@ export default function ApprovalScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={26} color={TEXT_DARK} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Persetujuan Properti</Text>
+        <Text style={styles.headerTitle}>{t("admin.propertyApproval")}</Text>
         <View style={{ width: 32 }} />
       </View>
 
@@ -299,7 +301,7 @@ export default function ApprovalScreen() {
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={18} color={TEXT_SECONDARY} />
           <TextInput
-            placeholder="Cari nama properti atau pemilik..."
+            placeholder={t("admin.approval.search")}
             value={search}
             onChangeText={setSearch}
             style={styles.searchInput}
@@ -327,7 +329,7 @@ export default function ApprovalScreen() {
         {filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="shield-outline" size={48} color="#CBD5E1" />
-            <Text style={styles.emptyText}>Tidak ada data pengajuan.</Text>
+            <Text style={styles.emptyText}>{t("admin.approval.empty")}</Text>
           </View>
         ) : (
           filtered.map((item) => {
@@ -369,13 +371,13 @@ export default function ApprovalScreen() {
               <View style={[styles.modalIconWrap, { backgroundColor: "#EF444415" }]}>
                 <Ionicons name="close-circle" size={22} color="#EF4444" />
               </View>
-              <Text style={styles.modalTitle}>Tolak Pengajuan</Text>
+              <Text style={styles.modalTitle}>{t("admin.rejectSubmission")}</Text>
             </View>
 
-            <Text style={styles.fieldLabel}>Alasan Penolakan</Text>
+            <Text style={styles.fieldLabel}>{t("admin.rejectionReason")}</Text>
             <TextInput
               style={[styles.modalInput, { height: 80, textAlignVertical: "top" }]}
-              placeholder="Contoh: Lokasi properti tidak sesuai dengan alamat..."
+              placeholder={t("admin.rejectionPlaceholder")}
               value={rejectionReasonInput}
               onChangeText={setRejectionReasonInput}
               multiline
@@ -387,13 +389,13 @@ export default function ApprovalScreen() {
                 style={styles.cancelBtn}
                 onPress={() => setRejectingId(null)}
               >
-                <Text style={styles.cancelBtnText}>Batal</Text>
+                <Text style={styles.cancelBtnText}>{t("common.cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.confirmBtn, { backgroundColor: "#EF4444" }]}
                 onPress={submitRejection}
               >
-                <Text style={styles.confirmBtnText}>Tolak</Text>
+                <Text style={styles.confirmBtnText}>{t("homeAdmin.reject")}</Text>
               </TouchableOpacity>
             </View>
           </View>

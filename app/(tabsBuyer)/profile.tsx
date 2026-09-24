@@ -13,6 +13,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from "react-native";
 import i18n from "../../utils/i18n";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -90,7 +91,7 @@ function DropdownPicker({
 export default function Profile() {
   const { t } = useTranslation();
   const { theme, themeMode, toggleTheme } = useTheme();
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout, uploadPhoto, removePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
 
@@ -125,68 +126,82 @@ export default function Profile() {
     ]);
   };
 
-  // ======= PILIH FOTO PROFIL =======
-  const pickImage = async () => {
-    const permissionResult =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert(t("common.error"), "Permission to access gallery is required!");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.5,
-      base64: true,
-    });
-    if (!result.canceled && result.assets[0].base64) {
-      setUploading(true);
-      const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-      await updateUser({ photo: base64Image });
+  // ======= FOTO PROFIL (disimpan di server: users.photo) =======
+  const uploadPicked = async (result: ImagePicker.ImagePickerResult) => {
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setUploading(true);
+    try {
+      await uploadPhoto({ uri: asset.uri, mimeType: asset.mimeType, fileName: asset.fileName });
+      Alert.alert(t("common.success"), t("profile.photoUpdated"));
+    } catch (error: any) {
+      const errors = error?.response?.data?.errors;
+      Alert.alert(
+        t("common.error"),
+        errors ? (Object.values(errors).flat() as string[]).join("\n") : t("profile.photoUploadFailed")
+      );
+    } finally {
       setUploading(false);
-      Alert.alert(t("common.success"), t("profile.updateSuccess"));
     }
   };
 
-  // ======= AMBIL FOTO PROFIL =======
-  const takePhoto = async () => {
-    const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert(t("common.error"), "Permission to access camera is required!");
+  const pickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t("common.error"), t("profile.galleryPermission"));
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.5,
-      base64: true,
-    });
-    if (!result.canceled && result.assets[0].base64) {
-      setUploading(true);
-      const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-      await updateUser({ photo: base64Image });
-      setUploading(false);
-      Alert.alert(t("common.success"), t("profile.updateSuccess"));
+    uploadPicked(
+      await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: 0.7 })
+    );
+  };
+
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(t("common.error"), t("profile.cameraPermission"));
+      return;
     }
+    uploadPicked(await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 }));
+  };
+
+  const deletePhoto = () => {
+    Alert.alert(t("profile.removePhoto"), t("profile.removePhotoConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("common.delete"),
+        style: "destructive",
+        onPress: async () => {
+          setUploading(true);
+          try {
+            await removePhoto();
+          } catch {
+            Alert.alert(t("common.error"), t("profile.photoUploadFailed"));
+          } finally {
+            setUploading(false);
+          }
+        },
+      },
+    ]);
   };
 
   const handleChangePhoto = () => {
     Alert.alert(t("profile.changePhoto"), "", [
-      { text: "Kamera", onPress: takePhoto },
-      { text: "Galeri", onPress: pickImage },
-      { text: t("common.cancel"), style: "cancel" },
+      { text: t("profile.camera"), onPress: takePhoto },
+      { text: t("profile.gallery"), onPress: pickImage },
+      ...(user?.photo ? [{ text: t("profile.removePhoto"), style: "destructive" as const, onPress: deletePhoto }] : []),
+      { text: t("common.cancel"), style: "cancel" as const },
     ]);
   };
 
   const getLangLabel = (code: string) => {
-    return code === "id" ? "Bahasa Indonesia" : "English";
+    return code === "id" ? "Bahasa Indonesia" : "English"; // language names stay in their own language
   };
 
   const getThemeLabel = (mode: string) => {
-    if (mode === "light") return "Mode Terang";
-    if (mode === "dark") return "Mode Gelap";
-    return "Ikuti Sistem";
+    if (mode === "light") return t("profile.lightMode");
+    if (mode === "dark") return t("profile.darkMode");
+    return t("profile.systemDefault");
   };
 
   return (
@@ -208,6 +223,11 @@ export default function Profile() {
               ) : (
                 <Ionicons name="person" size={50} color={theme.primary} />
               )}
+              {uploading && (
+                <View style={styles.avatarUploading}>
+                  <ActivityIndicator color="#FFFFFF" />
+                </View>
+              )}
               <View style={[styles.cameraIcon, { backgroundColor: theme.primary }]}>
                 <Ionicons name="camera" size={15} color="#FFFFFF" />
               </View>
@@ -215,14 +235,14 @@ export default function Profile() {
           </TouchableOpacity>
 
           <Text style={[styles.name, { color: theme.text }]}>
-            {user?.fullName || "User"}
+            {user?.fullName || t("profile.user")}
           </Text>
           <Text style={[styles.email, { color: theme.textSecondary }]}>
             {user?.email || "example@email.com"}
           </Text>
           <View style={[styles.badge, { backgroundColor: theme.primary + "15" }]}>
             <Text style={[styles.badgeText, { color: theme.primary }]}>
-              {user?.userType === "owner" ? t("auth.owner") : user?.userType === "buyer" ? t("auth.buyer") : "User"}
+              {user?.userType === "owner" ? t("auth.owner") : user?.userType === "buyer" ? t("auth.buyer") : t("profile.user")}
             </Text>
           </View>
         </View>
@@ -236,7 +256,7 @@ export default function Profile() {
             <View style={styles.menuItem}>
               <View style={styles.menuItemLeft}>
                 <Ionicons name="person-outline" size={20} color={theme.primary} />
-                <Text style={[styles.menuItemText, { color: theme.text }]}>Nama Lengkap</Text>
+                <Text style={[styles.menuItemText, { color: theme.text }]}>{t("auth.fullName")}</Text>
               </View>
               <Text style={[styles.menuItemValue, { color: theme.textSecondary }]} numberOfLines={1}>
                 {user?.fullName || "-"}
@@ -247,7 +267,7 @@ export default function Profile() {
             <View style={styles.menuItem}>
               <View style={styles.menuItemLeft}>
                 <Ionicons name="mail-outline" size={20} color={theme.primary} />
-                <Text style={[styles.menuItemText, { color: theme.text }]}>Email</Text>
+                <Text style={[styles.menuItemText, { color: theme.text }]}>{t("auth.email")}</Text>
               </View>
               <Text style={[styles.menuItemValue, { color: theme.textSecondary }]} numberOfLines={1}>
                 {user?.email || "-"}
@@ -258,7 +278,7 @@ export default function Profile() {
             <View style={styles.menuItem}>
               <View style={styles.menuItemLeft}>
                 <Ionicons name="call-outline" size={20} color={theme.primary} />
-                <Text style={[styles.menuItemText, { color: theme.text }]}>No. Telepon</Text>
+                <Text style={[styles.menuItemText, { color: theme.text }]}>{t("auth.phone")}</Text>
               </View>
               <Text style={[styles.menuItemValue, { color: theme.textSecondary }]}>
                 {user?.phone || "-"}
@@ -269,7 +289,7 @@ export default function Profile() {
             <View style={styles.menuItem}>
               <View style={styles.menuItemLeft}>
                 <Ionicons name="location-outline" size={20} color={theme.primary} />
-                <Text style={[styles.menuItemText, { color: theme.text }]}>Alamat</Text>
+                <Text style={[styles.menuItemText, { color: theme.text }]}>{t("auth.address")}</Text>
               </View>
               <Text style={[styles.menuItemValue, { color: theme.textSecondary }]} numberOfLines={1}>
                 {user?.address || "-"}
@@ -281,7 +301,7 @@ export default function Profile() {
         {/* === KELOMPOK PENGATURAN APLIKASI === */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-            {t("profile.settings") || "PENGATURAN"}
+            {t("profile.settings").toUpperCase()}
           </Text>
           <View style={[styles.menuGroup, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {/* Edit Profil */}
@@ -348,7 +368,7 @@ export default function Profile() {
         <DropdownPicker
           visible={langPickerVisible}
           onClose={() => setLangPickerVisible(false)}
-          title="Pilih Bahasa"
+          title={t("profile.chooseLanguage")}
           options={[
             { key: "id", label: "Bahasa Indonesia" },
             { key: "en", label: "English" },
@@ -361,11 +381,11 @@ export default function Profile() {
         <DropdownPicker
           visible={themePickerVisible}
           onClose={() => setThemePickerVisible(false)}
-          title="Pilih Tema"
+          title={t("profile.chooseTheme")}
           options={[
-            { key: "light", label: "Mode Terang" },
-            { key: "dark", label: "Mode Gelap" },
-            { key: "system", label: "Ikuti Sistem" },
+            { key: "light", label: t("profile.lightMode") },
+            { key: "dark", label: t("profile.darkMode") },
+            { key: "system", label: t("profile.systemDefault") },
           ]}
           selectedValue={themeMode}
           onSelect={(mode) => toggleTheme(mode as any)}
@@ -377,6 +397,13 @@ export default function Profile() {
 }
 
 const styles = StyleSheet.create({
+  avatarUploading: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   container: {
     flex: 1,
   },

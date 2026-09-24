@@ -1,5 +1,6 @@
+import { useTranslation } from "react-i18next";
+import i18n from "../../utils/i18n";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -21,6 +22,7 @@ import { DisasterDonutChart } from "../../components/gis/DisasterDonutChart";
 import { RouteModal, openExternalDirections } from "../../components/gis/RouteModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { useChat } from "../../contexts/ChatContext";
+import { useBookmark } from "../../contexts/BookmarkContext";
 import {
   BackendRiskApiResponse,
   DISASTER_LAYERS,
@@ -33,6 +35,10 @@ import { fetchNearestFacilities, NearestFacility } from "../../services/Facility
 
 const { width: screenWidth } = Dimensions.get("window");
 const PLACEHOLDER_IMAGE = "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800";
+
+// Risk level 1/2/3 → translation key + emoji
+const RISK_KEY: Record<number, string> = { 1: "risk.lowRisk", 2: "risk.mediumRisk", 3: "risk.highRisk" };
+const RISK_EMOJI: Record<number, string> = { 1: "🟢", 2: "🟡", 3: "🔴" };
 
 // land_area / building_area are stored as plain numbers ("160"); older rows may already include the unit
 const formatArea = (value?: string | null) => {
@@ -69,19 +75,21 @@ const SectionError = ({
     <Ionicons name="warning-outline" size={20} color="#DC2626" />
     <Text style={styles.sectionErrorText}>{message}</Text>
     <TouchableOpacity onPress={onRetry} style={styles.sectionRetryBtn}>
-      <Text style={styles.sectionRetryText}>Retry</Text>
+      <Text style={styles.sectionRetryText}>{i18n.t("common.retry")}</Text>
     </TouchableOpacity>
   </View>
 );
 
 /* ─── Main Component ──────────────────────────────────────────────────────── */
 export default function ProductDetail() {
+  const { t } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams();
   const idParam = params.id ? String(params.id) : "";
 
   const { user } = useAuth();
   const { getOrCreateConversation } = useChat();
+  const { isFavorite, toggleFavorite } = useBookmark();
   const isBuyerOrGuest = !user || (user.userType !== "owner" && user.userType !== "admin");
 
   // ── Property detail from GET /api/lands/{id} ──
@@ -100,7 +108,6 @@ export default function ProductDetail() {
   const [facilitiesError, setFacilitiesError] = useState<string | null>(null);
 
   // ── UI state ──
-  const [isBookmarked, setIsBookmarked] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | undefined>(undefined);
   const [descExpanded, setDescExpanded] = useState(false);
 
@@ -114,7 +121,7 @@ export default function ProductDetail() {
       setProperty(data);
     } catch (err: any) {
       console.error("Property fetch error:", err);
-      setPropertyError("Gagal memuat detail properti. Periksa koneksi ke server.");
+      setPropertyError(t("productDetail.loadError"));
     } finally {
       setIsLoadingProperty(false);
     }
@@ -130,7 +137,7 @@ export default function ProductDetail() {
       setRiskData(data);
     } catch (err: any) {
       console.error("Risk fetch error:", err);
-      setRiskError("Gagal memuat analisis risiko PostGIS.");
+      setRiskError(t("productDetail.riskLoadError"));
     } finally {
       setIsLoadingRisk(false);
     }
@@ -146,7 +153,7 @@ export default function ProductDetail() {
       setFacilities(data);
     } catch (err: any) {
       console.error("Facilities fetch error:", err);
-      setFacilitiesError("Gagal memuat data fasilitas terdekat.");
+      setFacilitiesError(t("productDetail.facilitiesLoadError"));
     } finally {
       setIsLoadingFacilities(false);
     }
@@ -163,44 +170,28 @@ export default function ProductDetail() {
   useEffect(() => {
     if (property && isBuyerOrGuest && property.status !== "Approved" && property.status !== "Sold") {
       Alert.alert(
-        "Properti Tidak Tersedia",
-        "Properti ini tidak aktif atau sedang dalam peninjauan.",
-        [{ text: "Kembali", onPress: () => router.back() }]
+        t("productDetail.unavailableTitle"),
+        t("productDetail.unavailableText"),
+        [{ text: t("common.back"), onPress: () => router.back() }]
       );
     }
   }, [property, isBuyerOrGuest]);
 
-  /* ── Bookmark ── */
-  useEffect(() => {
-    if (!idParam) return;
-    const check = async () => {
-      try {
-        const raw = await AsyncStorage.getItem("@loka:favorites");
-        if (!raw) return;
-        const favs: any[] = JSON.parse(raw);
-        setIsBookmarked(favs.some((f) => String(f.id) === idParam));
-      } catch {}
-    };
-    check();
-  }, [idParam]);
+  /* ── Bookmark (server-backed via BookmarkContext) ── */
+  const isBookmarked = isFavorite(idParam);
 
   const toggleBookmark = async () => {
+    if (!user) {
+      Alert.alert(t("common.loginRequired"), t("favorites.loginToSave"), [
+        { text: t("common.later"), style: "cancel" },
+        { text: t("auth.login"), onPress: () => router.push("/auth/login") },
+      ]);
+      return;
+    }
     try {
-      const raw = await AsyncStorage.getItem("@loka:favorites");
-      let favs: any[] = raw ? JSON.parse(raw) : [];
-      if (isBookmarked) {
-        favs = favs.filter((f) => String(f.id) !== idParam);
-        await AsyncStorage.setItem("@loka:favorites", JSON.stringify(favs));
-        setIsBookmarked(false);
-        Alert.alert("Saved", "Property removed from bookmarks.");
-      } else {
-        favs.push({ id: idParam, name: property?.name });
-        await AsyncStorage.setItem("@loka:favorites", JSON.stringify(favs));
-        setIsBookmarked(true);
-        Alert.alert("Saved", "Property added to bookmarks.");
-      }
+      await toggleFavorite(idParam);
     } catch {
-      Alert.alert("Error", "Could not update bookmark.");
+      Alert.alert(t("common.failed"), t("favorites.updateFailed"));
     }
   };
 
@@ -209,7 +200,7 @@ export default function ProductDetail() {
     if (!property) return;
     try {
       await Share.share({
-        message: `GIS Property Analysis: ${property.name} (${property.location}) • Rp ${(property.price ?? 0).toLocaleString("id-ID")}`,
+        message: `${property.name} (${property.location}) • Rp ${(property.price ?? 0).toLocaleString("id-ID")}`,
       });
     } catch {}
   };
@@ -220,7 +211,7 @@ export default function ProductDetail() {
   // Facility "Route" button → in-app road route from the property to that facility
   const handleFacilityRoute = (fac: NearestFacility) => {
     if (!property?.center) {
-      Alert.alert("Rute", "Koordinat tidak tersedia untuk properti ini.");
+      Alert.alert(t("common.route"), t("productDetail.noCoordinates"));
       return;
     }
     setRouteFacility(fac);
@@ -229,7 +220,7 @@ export default function ProductDetail() {
   // Footer "View Route" → navigation from the user's current location to the property
   const handleViewRoute = () => {
     if (!property?.center) {
-      Alert.alert("Rute", "Koordinat tidak tersedia untuk properti ini.");
+      Alert.alert(t("common.route"), t("productDetail.noCoordinates"));
       return;
     }
     openExternalDirections(property.center);
@@ -240,14 +231,14 @@ export default function ProductDetail() {
   const handleContactAgent = async () => {
     if (!property || isOpeningChat) return;
     if (!user) {
-      Alert.alert("Masuk diperlukan", "Silakan masuk atau daftar untuk mengirim pesan ke pemilik properti.", [
-        { text: "Nanti", style: "cancel" },
-        { text: "Masuk", onPress: () => router.push("/auth/login") },
+      Alert.alert(t("common.loginRequired"), t("productDetail.loginToChat"), [
+        { text: t("common.later"), style: "cancel" },
+        { text: t("auth.login"), onPress: () => router.push("/auth/login") },
       ]);
       return;
     }
     if (property.ownerId && property.ownerId === user.id) {
-      Alert.alert("Properti Anda", "Ini adalah properti milik Anda. Pesan dari calon pembeli akan muncul di tab Chat.");
+      Alert.alert(t("productDetail.ownPropertyTitle"), t("productDetail.ownPropertyText"));
       return;
     }
     setIsOpeningChat(true);
@@ -256,7 +247,7 @@ export default function ProductDetail() {
         buyerId: user.id,
         buyerName: user.fullName || "",
         ownerId: property.ownerId || "owner",
-        ownerName: property.owner || "Pemilik Properti",
+        ownerName: property.owner || t("chat.propertyOwner"),
         propertyId: String(property.id),
         propertyTitle: property.name,
         propertyImage: property.image || PLACEHOLDER_IMAGE,
@@ -271,13 +262,12 @@ export default function ProductDetail() {
           propertyId: String(property.id),
           propertyTitle: property.name,
           ownerName: conv.ownerName,
-          status: property.isForSale ? "For Sale" : "For Rent",
         },
       });
     } catch (error: any) {
       Alert.alert(
-        "Tidak dapat membuka chat",
-        error?.response?.data?.error || "Periksa koneksi internet Anda lalu coba lagi."
+        t("productDetail.chatOpenError"),
+        error?.response?.data?.error || t("common.connectionError")
       );
     } finally {
       setIsOpeningChat(false);
@@ -311,7 +301,7 @@ export default function ProductDetail() {
         </View>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
           <ActivityIndicator size="large" color="#2E7D32" />
-          <Text style={{ fontSize: 14, color: "#6B7280" }}>Memuat data properti dari PostgreSQL...</Text>
+          <Text style={{ fontSize: 14, color: "#6B7280" }}>{t("productDetail.loading")}</Text>
         </View>
       </SafeAreaView>
     );
@@ -328,10 +318,10 @@ export default function ProductDetail() {
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 32 }}>
           <Ionicons name="cloud-offline-outline" size={48} color="#9CA3AF" />
           <Text style={{ fontSize: 16, fontWeight: "700", color: "#374151", textAlign: "center" }}>
-            {propertyError ?? "Properti tidak ditemukan"}
+            {propertyError ?? t("productDetail.notFound")}
           </Text>
           <TouchableOpacity onPress={loadProperty} style={styles.sectionRetryBtn}>
-            <Text style={styles.sectionRetryText}>Coba Lagi</Text>
+            <Text style={styles.sectionRetryText}>{t("common.retry")}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -407,7 +397,7 @@ export default function ProductDetail() {
             </Text>
             <View style={styles.transBadge}>
               <Text style={styles.transBadgeText}>
-                {property.isForSale ? "FOR SALE" : "FOR RENT"}
+                {property.isForSale ? t("property.forSaleBadge") : t("property.forRentBadge")}
               </Text>
             </View>
           </View>
@@ -419,41 +409,41 @@ export default function ProductDetail() {
         <View style={styles.cardSection}>
           <View style={styles.sectionHeaderRow}>
             <Ionicons name="information-circle-outline" size={18} color="#2E7D32" />
-            <Text style={styles.cardSectionTitle}>Property Information</Text>
+            <Text style={styles.cardSectionTitle}>{t("productDetail.propertyInfo")}</Text>
           </View>
 
           <View style={styles.specsGrid}>
             <View style={styles.specBox}>
-              <Text style={styles.specLabel}>Type</Text>
-              <Text style={styles.specVal}>{(property.type ?? "—").toUpperCase()}</Text>
+              <Text style={styles.specLabel}>{t("productDetail.type")}</Text>
+              <Text style={styles.specVal}>{property.type ? t(`property.type.${property.type}`, { defaultValue: property.type }).toUpperCase() : "—"}</Text>
             </View>
             <View style={styles.specBox}>
-              <Text style={styles.specLabel}>Land Area</Text>
+              <Text style={styles.specLabel}>{t("productDetail.landArea")}</Text>
               <Text style={styles.specVal}>{formatArea(property.area?.land)}</Text>
             </View>
             <View style={styles.specBox}>
-              <Text style={styles.specLabel}>Building Area</Text>
+              <Text style={styles.specLabel}>{t("productDetail.buildingArea")}</Text>
               <Text style={styles.specVal}>{formatArea(property.area?.building)}</Text>
             </View>
             <View style={styles.specBox}>
-              <Text style={styles.specLabel}>Bedrooms</Text>
+              <Text style={styles.specLabel}>{t("productDetail.bedrooms")}</Text>
               <Text style={styles.specVal}>{property.bedrooms ?? "—"}</Text>
             </View>
             <View style={styles.specBox}>
-              <Text style={styles.specLabel}>Bathrooms</Text>
+              <Text style={styles.specLabel}>{t("productDetail.bathrooms")}</Text>
               <Text style={styles.specVal}>{property.bathrooms ?? "—"}</Text>
             </View>
             <View style={styles.specBox}>
-              <Text style={styles.specLabel}>Garage</Text>
+              <Text style={styles.specLabel}>{t("productDetail.garage")}</Text>
               <Text style={styles.specVal}>{property.garage ?? "—"}</Text>
             </View>
             <View style={[styles.specBox, { width: "100%" }]}>
-              <Text style={styles.specLabel}>Certificate</Text>
+              <Text style={styles.specLabel}>{t("productDetail.certificate")}</Text>
               <Text style={styles.specVal}>{property.certificate ?? "—"}</Text>
             </View>
             {property.owner && (
               <View style={[styles.specBox, { width: "100%" }]}>
-                <Text style={styles.specLabel}>Owner</Text>
+                <Text style={styles.specLabel}>{t("productDetail.owner")}</Text>
                 <Text style={styles.specVal}>{property.owner}</Text>
               </View>
             )}
@@ -461,12 +451,12 @@ export default function ProductDetail() {
 
           {property.description ? (
             <>
-              <Text style={[styles.specLabel, { marginTop: 12 }]}>Description</Text>
+              <Text style={[styles.specLabel, { marginTop: 12 }]}>{t("productDetail.description")}</Text>
               <Text style={styles.descText} numberOfLines={descExpanded ? undefined : 3}>
                 {property.description}
               </Text>
               <TouchableOpacity onPress={() => setDescExpanded(!descExpanded)}>
-                <Text style={styles.readMoreBtn}>{descExpanded ? "Collapse" : "Read More"}</Text>
+                <Text style={styles.readMoreBtn}>{descExpanded ? t("productDetail.collapse") : t("productDetail.readMore")}</Text>
               </TouchableOpacity>
             </>
           ) : null}
@@ -478,7 +468,7 @@ export default function ProductDetail() {
         <View style={styles.cardSection}>
           <View style={styles.sectionHeaderRow}>
             <Ionicons name="map-outline" size={18} color="#2E7D32" />
-            <Text style={styles.cardSectionTitle}>Interactive Mini Map</Text>
+            <Text style={styles.cardSectionTitle}>{t("productDetail.miniMap")}</Text>
           </View>
 
           {property.center ? (
@@ -507,14 +497,14 @@ export default function ProductDetail() {
                   activeOpacity={0.85}
                 >
                   <Ionicons name="expand-outline" size={14} color="#FFFFFF" />
-                  <Text style={styles.fullscreenMapText}>Fullscreen Map</Text>
+                  <Text style={styles.fullscreenMapText}>{t("productDetail.fullscreenMap")}</Text>
                 </TouchableOpacity>
               </View>
 
               <View style={styles.coordsRow}>
                 <Ionicons name="compass-outline" size={14} color="#6B7280" />
                 <Text style={styles.coordsText}>
-                  Coordinates: {property.center.latitude.toFixed(4)},{" "}
+                  {t("productDetail.coordinates")}: {property.center.latitude.toFixed(4)},{" "}
                   {property.center.longitude.toFixed(4)}
                 </Text>
               </View>
@@ -523,7 +513,7 @@ export default function ProductDetail() {
             <View style={styles.sectionErrorBox}>
               <Ionicons name="map-outline" size={20} color="#9CA3AF" />
               <Text style={styles.sectionErrorText}>
-                Koordinat lokasi belum tersedia untuk properti ini.
+                {t("productDetail.noCoordinates")}
               </Text>
             </View>
           )}
@@ -535,10 +525,10 @@ export default function ProductDetail() {
         <View style={styles.cardSection}>
           <View style={styles.sectionHeaderRow}>
             <Ionicons name="navigate-outline" size={18} color="#2E7D32" />
-            <Text style={styles.cardSectionTitle}>Accessibility Analysis</Text>
+            <Text style={styles.cardSectionTitle}>{t("productDetail.accessibility")}</Text>
           </View>
           <Text style={styles.sectionSubTitle}>
-            Nearest public facilities from PostgreSQL + ST_Distance. Tap Route for the road route.
+            {t("productDetail.accessibilitySub")}
           </Text>
 
           {isLoadingFacilities ? (
@@ -549,7 +539,7 @@ export default function ProductDetail() {
             <View style={styles.sectionErrorBox}>
               <Ionicons name="location-outline" size={20} color="#9CA3AF" />
               <Text style={styles.sectionErrorText}>
-                Tidak ada data fasilitas terdekat tersedia.
+                {t("productDetail.noFacilities")}
               </Text>
             </View>
           ) : (
@@ -561,12 +551,12 @@ export default function ProductDetail() {
                   </View>
 
                   <View style={styles.facilityMetaCol}>
-                    <Text style={styles.facilityCategoryText}>{fac.category}</Text>
+                    <Text style={styles.facilityCategoryText}>{t(`facilityCategory.${fac.category}`, { defaultValue: fac.category })}</Text>
                     <Text style={styles.facilityNameText} numberOfLines={1}>
                       {fac.name}
                     </Text>
                     <Text style={styles.facilityDistText}>
-                      📍 {fac.distanceKm} km • ⏱ ~{fac.travelTimeMinutes} mins
+                      📍 {fac.distanceKm} km • ⏱ ~{t("route.minutes", { count: fac.travelTimeMinutes })}
                     </Text>
                   </View>
 
@@ -576,7 +566,7 @@ export default function ProductDetail() {
                     activeOpacity={0.8}
                   >
                     <Ionicons name="git-network-outline" size={14} color="#2E7D32" />
-                    <Text style={styles.routeBtnText}>Route</Text>
+                    <Text style={styles.routeBtnText}>{t("common.route")}</Text>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -593,10 +583,9 @@ export default function ProductDetail() {
           <View style={styles.overallRiskCard}>
             <View style={styles.overallRiskHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.overallTitle}>Disaster Risk Analysis</Text>
+                <Text style={styles.overallTitle}>{t("productDetail.riskTitle")}</Text>
                 <Text style={styles.overallSubtitle}>
-                  Based on official BPBD/BNPB (InaRISK) disaster risk data using PostGIS
-                  spatial overlay analysis.
+                  {t("productDetail.riskSubtitle")}
                 </Text>
               </View>
             </View>
@@ -611,23 +600,22 @@ export default function ProductDetail() {
               </View>
             ) : (
               <View style={styles.overallStatusRow}>
-                <Text style={styles.overallStatusLabel}>Overall Location Status:</Text>
+                <Text style={styles.overallStatusLabel}>{t("productDetail.overallStatus")}</Text>
                 <View style={[styles.overallBadge, { backgroundColor: overallRiskInfo.bg }]}>
                   <Text style={[styles.overallBadgeText, { color: overallRiskInfo.color }]}>
-                    {overallRiskInfo.label} Area
+                    {RISK_EMOJI[riskApiResponse.overallRisk] ?? "🟢"} {t("productDetail.riskArea", { level: t(RISK_KEY[riskApiResponse.overallRisk] ?? "risk.lowRisk") })}
                   </Text>
                 </View>
               </View>
             )}
 
             <Text style={styles.overallDesc}>
-              "The property is located within official disaster risk zones identified through
-              PostGIS spatial overlay analysis using BPBD/BNPB (InaRISK) disaster datasets."
+              {t("productDetail.riskNote")}
             </Text>
           </View>
 
           {/* 2. DISASTER DETAIL CARDS */}
-          <Text style={styles.subSectionTitle}>Official Disaster Exposure Cards</Text>
+          <Text style={styles.subSectionTitle}>{t("productDetail.exposureCards")}</Text>
           {isLoadingRisk ? (
             <SectionSkeleton lines={3} />
           ) : riskError ? (
@@ -644,23 +632,23 @@ export default function ProductDetail() {
                     <View style={styles.disasterHeader}>
                       <View style={styles.disasterTitleRow}>
                         <Text style={styles.disasterEmoji}>{layer.emoji}</Text>
-                        <Text style={styles.disasterName}>{layer.name}</Text>
+                        <Text style={styles.disasterName}>{t(`layers.${layer.id}`)}</Text>
                       </View>
                       <View style={[styles.miniRiskBadge, { backgroundColor: riskInfo.bg }]}>
                         <Text style={[styles.miniRiskBadgeText, { color: riskInfo.color }]}>
-                          {riskInfo.label}
+                          {RISK_EMOJI[numericVal]} {t(RISK_KEY[numericVal])}
                         </Text>
                       </View>
                     </View>
 
-                    <Text style={styles.disasterCardDesc}>{layer.description}</Text>
+                    <Text style={styles.disasterCardDesc}>{t(`layers.desc.${layer.id}`)}</Text>
 
                     <TouchableOpacity
                       style={styles.viewOnMapBtn}
                       onPress={() => router.push({ pathname: "/maps", params: { focusId: String(property.id) } })}
                       activeOpacity={0.8}
                     >
-                      <Text style={styles.viewOnMapText}>View on Map</Text>
+                      <Text style={styles.viewOnMapText}>{t("productDetail.viewOnMap")}</Text>
                       <Ionicons name="arrow-forward" size={12} color="#2E7D32" />
                     </TouchableOpacity>
                   </View>
@@ -677,13 +665,13 @@ export default function ProductDetail() {
           {/* 4. SPATIAL RISK SUMMARY — derived from backend riskApiResponse */}
           {!isLoadingRisk && !riskError && (
             <>
-              <Text style={styles.subSectionTitle}>Spatial Risk Summary</Text>
+              <Text style={styles.subSectionTitle}>{t("productDetail.spatialSummary")}</Text>
               <View style={styles.spatialSummaryBox}>
                 {DISASTER_LAYERS.map((layer) => {
                   const numericVal: NumericRiskCode =
                     (riskApiResponse.risk as any)[layer.keyName] ?? 1;
                   const isLow = numericVal === 1;
-                  const riskText = NUMERIC_RISK_MAP[numericVal].text;
+                  const riskText = t(RISK_KEY[numericVal]);
 
                   return (
                     <View key={`summary-${layer.id}`} style={styles.spatialSummaryRow}>
@@ -691,7 +679,7 @@ export default function ProductDetail() {
                         {isLow ? "✓" : "⚠"}
                       </Text>
                       <Text style={styles.summaryText}>
-                        {riskText} {layer.name} Risk
+                        {t(`layers.${layer.id}`)}: {riskText}
                       </Text>
                     </View>
                   );
@@ -704,8 +692,7 @@ export default function ProductDetail() {
           <View style={styles.sourceAttributionFooter}>
             <Ionicons name="information-circle-outline" size={14} color="#6B7280" />
             <Text style={styles.sourceAttributionText}>
-              Data Source: Official BPBD/BNPB (InaRISK) Disaster Risk Map • Spatial analysis
-              performed using PostgreSQL/PostGIS • Results via Laravel REST API
+              {t("productDetail.dataSource")}
             </Text>
           </View>
         </View>
@@ -722,17 +709,17 @@ export default function ProductDetail() {
             size={18}
             color={isBookmarked ? "#2E7D32" : "#4B5563"}
           />
-          <Text style={styles.footerIconText}>Save</Text>
+          <Text style={styles.footerIconText}>{t("common.save")}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.footerIconBtn} onPress={handleShare}>
           <Ionicons name="share-social-outline" size={18} color="#4B5563" />
-          <Text style={styles.footerIconText}>Share</Text>
+          <Text style={styles.footerIconText}>{t("common.share")}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.secondaryActionBtn} onPress={handleViewRoute}>
           <Ionicons name="navigate" size={16} color="#2E7D32" />
-          <Text style={styles.secondaryActionText}>View Route</Text>
+          <Text style={styles.secondaryActionText}>{t("productDetail.viewRoute")}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.primaryActionBtn} onPress={handleContactAgent} disabled={isOpeningChat}>
@@ -741,7 +728,7 @@ export default function ProductDetail() {
           ) : (
             <Ionicons name="chatbubble-ellipses" size={16} color="#FFFFFF" />
           )}
-          <Text style={styles.primaryActionText}>Contact Agent</Text>
+          <Text style={styles.primaryActionText}>{t("productDetail.contactAgent")}</Text>
         </TouchableOpacity>
       </View>
 

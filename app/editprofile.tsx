@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -5,6 +6,8 @@ import MapView, { Marker, MapPressEvent } from "react-native-maps";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Platform,
@@ -98,9 +101,11 @@ function DropdownPicker({
 }
 
 export default function EditProfileScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { theme, isDark } = useTheme();
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, saveProfile, uploadPhoto } = useAuth();
+  const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -110,6 +115,8 @@ export default function EditProfileScreen() {
   const [gender, setGender] = useState<"male" | "female" | "other">("male");
   const [genderPickerVisible, setGenderPickerVisible] = useState(false);
   const [avatar, setAvatar] = useState<string | null>(null);
+  // Photo picked in this screen but not uploaded yet
+  const [pickedPhoto, setPickedPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
   // State untuk alamat dan koordinat
   const [address, setAddress] = useState("");
@@ -130,21 +137,34 @@ export default function EditProfileScreen() {
   }, [user]);
 
   const handleSave = async () => {
+    if (!name.trim()) {
+      Alert.alert(t("common.warning"), t("editProfile.nameRequired"));
+      return;
+    }
+    setSaving(true);
     try {
+      // Server: name / email / phone (+ photo) → users table
+      await saveProfile({ fullName: name.trim(), email: email.trim(), phone: phone.trim() });
+      if (pickedPhoto) {
+        await uploadPhoto({ uri: pickedPhoto.uri, mimeType: pickedPhoto.mimeType, fileName: pickedPhoto.fileName });
+      }
+      // Device only: fields that have no column in the users table yet
       await updateUser({
-        fullName: name,
-        email,
-        phone,
         dob: dob.toISOString(),
         gender,
-        photo: avatar || undefined,
         address,
         location: location || undefined,
       });
-      alert("Profil berhasil diperbarui!");
+      Alert.alert(t("common.success"), t("profile.updateSuccess"));
       router.back();
-    } catch (e) {
-      alert("Gagal memperbarui profil.");
+    } catch (error: any) {
+      const errors = error?.response?.data?.errors;
+      Alert.alert(
+        t("common.failed"),
+        errors ? (Object.values(errors).flat() as string[]).join("\n") : t("editProfile.saveFailed")
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -154,14 +174,15 @@ export default function EditProfileScreen() {
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 1,
+      quality: 0.7,
     });
 
     if (!result.canceled) {
       setAvatar(result.assets[0].uri);
+      setPickedPhoto(result.assets[0]);
     }
   };
 
@@ -169,7 +190,7 @@ export default function EditProfileScreen() {
   const getCurrentLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== "granted") {
-      alert("Izin lokasi diperlukan untuk mendeteksi alamat otomatis.");
+      alert(t("editProfile.locationPermission"));
       return;
     }
 
@@ -209,7 +230,7 @@ export default function EditProfileScreen() {
         <TouchableOpacity onPress={handleCancel} style={styles.backButtonHeader}>
           <Ionicons name="chevron-back" size={26} color={theme.primary} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitleText, { color: theme.text }]}>Edit Profil</Text>
+        <Text style={[styles.headerTitleText, { color: theme.text }]}>{t("profile.editProfile")}</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -234,20 +255,20 @@ export default function EditProfileScreen() {
         {/* Form Card */}
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           {/* Full Name */}
-          <Text style={[styles.label, { color: theme.text }]}>Nama Lengkap</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t("auth.fullName")}</Text>
           <TextInput
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-            placeholder="Masukkan nama lengkap"
+            placeholder={t("editProfile.enterName")}
             placeholderTextColor={theme.textSecondary}
             value={name}
             onChangeText={setName}
           />
 
           {/* Email */}
-          <Text style={[styles.label, { color: theme.text }]}>Email</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t("auth.email")}</Text>
           <TextInput
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-            placeholder="Masukkan email"
+            placeholder={t("editProfile.enterEmail")}
             placeholderTextColor={theme.textSecondary}
             keyboardType="email-address"
             value={email}
@@ -255,10 +276,10 @@ export default function EditProfileScreen() {
           />
 
           {/* Phone */}
-          <Text style={[styles.label, { color: theme.text }]}>Nomor Telepon</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t("auth.phone")}</Text>
           <TextInput
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
-            placeholder="Masukkan nomor telepon"
+            placeholder={t("editProfile.enterPhone")}
             placeholderTextColor={theme.textSecondary}
             keyboardType="phone-pad"
             value={phone}
@@ -266,14 +287,14 @@ export default function EditProfileScreen() {
           />
 
           {/* Address */}
-          <Text style={[styles.label, { color: theme.text }]}>Alamat</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t("auth.address")}</Text>
           <View style={styles.addressRow}>
             <TextInput
               style={[
                 styles.addressInput,
                 { color: theme.text, borderColor: theme.border, backgroundColor: theme.background },
               ]}
-              placeholder="Masukkan alamat"
+              placeholder={t("editProfile.enterAddress")}
               placeholderTextColor={theme.textSecondary}
               value={address}
               onChangeText={setAddress}
@@ -306,7 +327,7 @@ export default function EditProfileScreen() {
           )}
 
           {/* Date of Birth */}
-          <Text style={[styles.label, { color: theme.text }]}>Tanggal Lahir</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t("editProfile.dob")}</Text>
           <TouchableOpacity
             style={[styles.dateButton, { borderColor: theme.border, backgroundColor: theme.background }]}
             onPress={() => setShowDatePicker(true)}
@@ -325,11 +346,11 @@ export default function EditProfileScreen() {
                 <View style={[styles.modalSheet, { backgroundColor: theme.card }]}>
                   <View style={[styles.modalHeader, { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 16, alignItems: "center" }]}>
                     <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                      <Text style={{ color: theme.error, fontSize: 16, fontWeight: "600" }}>Batal</Text>
+                      <Text style={{ color: theme.error, fontSize: 16, fontWeight: "600" }}>{t("common.cancel")}</Text>
                     </TouchableOpacity>
-                    <Text style={[styles.modalTitle, { color: theme.text }]}>Pilih Tanggal</Text>
+                    <Text style={[styles.modalTitle, { color: theme.text }]}>{t("editProfile.chooseDate")}</Text>
                     <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                      <Text style={{ color: theme.primary, fontSize: 16, fontWeight: "600" }}>Selesai</Text>
+                      <Text style={{ color: theme.primary, fontSize: 16, fontWeight: "600" }}>{t("editProfile.done")}</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={{ paddingVertical: 16 }}>
@@ -362,14 +383,14 @@ export default function EditProfileScreen() {
           )}
 
           {/* Gender (Custom Dropdown Selector) */}
-          <Text style={[styles.label, { color: theme.text }]}>Jenis Kelamin</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{t("editProfile.gender")}</Text>
           <TouchableOpacity
             style={[styles.dropdownTrigger, { borderColor: theme.border, backgroundColor: theme.background }]}
             onPress={() => setGenderPickerVisible(true)}
             activeOpacity={0.8}
           >
             <Text style={[styles.dropdownTriggerText, { color: theme.text }]}>
-              {gender === "male" ? "Laki-laki" : gender === "female" ? "Perempuan" : gender === "other" ? "Lainnya" : "Pilih Jenis Kelamin"}
+              {gender === "male" ? t("editProfile.male") : gender === "female" ? t("editProfile.female") : gender === "other" ? t("editProfile.other") : t("editProfile.chooseGender")}
             </Text>
             <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
           </TouchableOpacity>
@@ -377,11 +398,11 @@ export default function EditProfileScreen() {
           <DropdownPicker
             visible={genderPickerVisible}
             onClose={() => setGenderPickerVisible(false)}
-            title="Pilih Jenis Kelamin"
+            title={t("editProfile.chooseGender")}
             options={[
-              { key: "male", label: "Laki-laki" },
-              { key: "female", label: "Perempuan" },
-              { key: "other", label: "Lainnya" },
+              { key: "male", label: t("editProfile.male") },
+              { key: "female", label: t("editProfile.female") },
+              { key: "other", label: t("editProfile.other") },
             ]}
             selectedValue={gender}
             onSelect={(val) => setGender(val as any)}
@@ -396,14 +417,15 @@ export default function EditProfileScreen() {
             onPress={handleCancel}
             activeOpacity={0.8}
           >
-            <Text style={[styles.cancelButtonText, { color: theme.text }]}>Batal</Text>
+            <Text style={[styles.cancelButtonText, { color: theme.text }]}>{t("common.cancel")}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.saveButton, { backgroundColor: theme.primary }]}
+            style={[styles.saveButton, { backgroundColor: theme.primary, opacity: saving ? 0.7 : 1 }]}
             onPress={handleSave}
+            disabled={saving}
             activeOpacity={0.8}
           >
-            <Text style={styles.saveButtonText}>Simpan Perubahan</Text>
+            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveButtonText}>{t("profile.saveChanges")}</Text>}
           </TouchableOpacity>
         </View>
       </ScrollView>

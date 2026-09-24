@@ -110,7 +110,7 @@ export default function HomeAdmin() {
   ];
 
   const quickActions = [
-    { label: "Persetujuan Properti", icon: "checkmark-circle" as const, color: PRIMARY, route: "/(tabsAdmin)/approval" },
+    { label: t("admin.propertyApproval"), icon: "checkmark-circle" as const, color: PRIMARY, route: "/(tabsAdmin)/approval" },
     { label: t("homeAdmin.userManagement"), icon: "people" as const, color: "#8B5CF6", route: "/(tabsAdmin)/users" },
     { label: t("homeAdmin.complaintManagement"), icon: "alert-circle" as const, color: WARNING, route: "/(tabsAdmin)/complaints" },
     { label: t("homeAdmin.spatialData"), icon: "map" as const, color: "#0891B2", route: "/(tabsAdmin)/spatial" },
@@ -174,7 +174,7 @@ export default function HomeAdmin() {
           try {
             await updateLandStatus(id, "Approved");
           } catch (error: any) {
-            Alert.alert("Gagal", error.response?.data?.message || "Gagal menyetujui properti.");
+            Alert.alert(t("common.failed"), error.response?.data?.message || t("admin.approveFailed"));
           }
         },
       },
@@ -189,22 +189,22 @@ export default function HomeAdmin() {
   const submitRejection = async () => {
     if (!rejectingId) return;
 
-    const reason = rejectionReasonInput.trim() || "Lokasi properti tidak sesuai.";
+    const reason = rejectionReasonInput.trim() || t("admin.defaultRejectReason");
 
     try {
       await updateLandStatus(rejectingId, "Rejected", reason);
       setRejectingId(null);
       setRejectionReasonInput("");
-      Alert.alert("Sukses", "Properti berhasil ditolak.");
+      Alert.alert(t("common.success"), t("admin.rejectSuccess"));
     } catch (error: any) {
-      Alert.alert("Gagal", error.response?.data?.message || "Gagal menolak properti.");
+      Alert.alert(t("common.failed"), error.response?.data?.message || t("admin.rejectFailed"));
     }
   };
 
   // Generate Report handler
   const handleGenerateReport = () => {
     if (startDate && endDate && startDate > endDate) {
-      Alert.alert("Peringatan", "Tanggal mulai tidak boleh setelah tanggal akhir.");
+      Alert.alert(t("common.warning"), t("report.startAfterEnd"));
       return;
     }
 
@@ -289,20 +289,20 @@ export default function HomeAdmin() {
     const [ey, em, ed] = endDate.split("-").map(Number);
     const range = { start: new Date(sy, sm - 1, sd), end: new Date(ey, em - 1, ed) };
     if (isNaN(range.start.getTime()) || isNaN(range.end.getTime())) {
-      Alert.alert("Peringatan", "Format tanggal harus YYYY-MM-DD.");
+      Alert.alert(t("common.warning"), t("report.dateFormat"));
       return;
     }
     try {
       setDownloading(format);
       const result = await exportReport(REPORT_KIND[selectedReportType], format, range, { lands, users, complaints });
       if (result.status === "saved") {
-        Alert.alert(t("homeAdmin.success"), `Laporan tersimpan sebagai:\n${result.fileName}`);
+        Alert.alert(t("homeAdmin.success"), t("report.savedAs", { file: result.fileName }));
       } else if (result.status === "cancelled") {
-        Alert.alert("Dibatalkan", "Pilih folder penyimpanan untuk mengunduh laporan.");
+        Alert.alert(t("report.cancelledTitle"), t("report.cancelled"));
       }
     } catch (error: any) {
       console.error("❌ Export report error:", error);
-      Alert.alert("Gagal", error?.message || "Gagal membuat laporan.");
+      Alert.alert(t("common.failed"), error?.message || t("report.failed"));
     } finally {
       setDownloading(null);
     }
@@ -340,7 +340,7 @@ export default function HomeAdmin() {
 
         {/* ── Persetujuan Properti Summary Card ── */}
         <View style={styles.approvalSummaryCard}>
-          <Text style={styles.approvalSummaryTitle}>Persetujuan Properti</Text>
+          <Text style={styles.approvalSummaryTitle}>{t("admin.propertyApproval")}</Text>
           <View style={styles.approvalSummaryRow}>
             {/* Pending Card */}
             <TouchableOpacity 
@@ -352,7 +352,7 @@ export default function HomeAdmin() {
                 <Ionicons name="time" size={18} color="#F59E0B" />
               </View>
               <Text style={styles.approvalCount}>{lands.filter((l) => l.status === "Pending").length}</Text>
-              <Text style={styles.approvalLabel}>Pending</Text>
+              <Text style={styles.approvalLabel}>{t("homeAdmin.pending")}</Text>
             </TouchableOpacity>
 
             {/* Approved Card */}
@@ -361,7 +361,7 @@ export default function HomeAdmin() {
                 <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
               </View>
               <Text style={styles.approvalCount}>{lands.filter((l) => l.status === "Approved").length}</Text>
-              <Text style={styles.approvalLabel}>Disetujui</Text>
+              <Text style={styles.approvalLabel}>{t("homeAdmin.approved")}</Text>
             </View>
 
             {/* Rejected Card */}
@@ -370,7 +370,7 @@ export default function HomeAdmin() {
                 <Ionicons name="close-circle" size={18} color="#EF4444" />
               </View>
               <Text style={styles.approvalCount}>{lands.filter((l) => l.status === "Rejected").length}</Text>
-              <Text style={styles.approvalLabel}>Ditolak</Text>
+              <Text style={styles.approvalLabel}>{t("homeAdmin.rejected")}</Text>
             </View>
           </View>
         </View>
@@ -766,13 +766,13 @@ export default function HomeAdmin() {
               <View style={[styles.modalIconWrap, { backgroundColor: "#EF444415" }]}>
                 <Ionicons name="close-circle" size={22} color="#EF4444" />
               </View>
-              <Text style={styles.modalTitle}>Tolak Pengajuan</Text>
+              <Text style={styles.modalTitle}>{t("admin.rejectSubmission")}</Text>
             </View>
 
-            <Text style={styles.fieldLabel}>Alasan Penolakan</Text>
+            <Text style={styles.fieldLabel}>{t("admin.rejectionReason")}</Text>
             <TextInput
               style={[styles.modalInput, { height: 80, textAlignVertical: "top" }]}
-              placeholder="Contoh: Lokasi properti tidak sesuai dengan alamat..."
+              placeholder={t("admin.rejectionPlaceholder")}
               value={rejectionReasonInput}
               onChangeText={setRejectionReasonInput}
               multiline
@@ -784,13 +784,13 @@ export default function HomeAdmin() {
                 style={styles.rejectionCancelBtn}
                 onPress={() => setRejectingId(null)}
               >
-                <Text style={styles.rejectionCancelBtnText}>Batal</Text>
+                <Text style={styles.rejectionCancelBtnText}>{t("common.cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.rejectionConfirmBtn, { backgroundColor: "#EF4444" }]}
                 onPress={submitRejection}
               >
-                <Text style={styles.rejectionConfirmBtnText}>Tolak</Text>
+                <Text style={styles.rejectionConfirmBtnText}>{t("homeAdmin.reject")}</Text>
               </TouchableOpacity>
             </View>
           </View>

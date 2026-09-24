@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { LanguageSwitch } from "../../components/common/LanguageSwitch";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -19,6 +21,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 
 export default function Register() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const { register } = useAuth();
   const router = useRouter();
@@ -37,18 +40,15 @@ export default function Register() {
   // ================= HANDLE REGISTER =================
   const handleRegister = async () => {
     if (!fullName || !email || !phone || !password || !confirmPassword) {
-      Alert.alert("Data belum lengkap", "Mohon lengkapi semua field yang tersedia.");
+      Alert.alert(t("auth.incompleteTitle"), t("auth.fillAllFields"));
       return;
     }
     if (password !== confirmPassword) {
-      Alert.alert("Password tidak cocok", "Konfirmasi password harus sama dengan kata sandi.");
+      Alert.alert(t("auth.passwordMismatch"), t("auth.passwordMismatchDesc"));
       return;
     }
     if (!agreeTerms) {
-      Alert.alert(
-        "Persetujuan diperlukan",
-        "Anda harus menyetujui Syarat & Ketentuan untuk mendaftar."
-      );
+      Alert.alert(t("auth.termsRequiredTitle"), t("auth.termsRequired"));
       return;
     }
 
@@ -64,9 +64,9 @@ export default function Register() {
       setLoading(false);
 
       if (result.success) {
-        Alert.alert("Pendaftaran Berhasil", "Akun Anda telah berhasil dibuat!", [
+        Alert.alert(t("auth.registerSuccess"), t("auth.accountCreated"), [
           {
-            text: "OK",
+            text: t("common.ok"),
             onPress: () => {
               if (userType === "owner") {
                 router.replace("/(tabsOwner)/homeOwner");
@@ -77,17 +77,18 @@ export default function Register() {
           },
         ]);
       } else {
-        Alert.alert("Pendaftaran Gagal", result.message || "Gagal membuat akun.");
+        Alert.alert(t("auth.registerError"), result.message || t("auth.createAccountFailed"));
       }
     } catch (e) {
       setLoading(false);
-      Alert.alert("Kesalahan", "Terjadi kesalahan saat melakukan registrasi.");
+      Alert.alert(t("common.error"), t("auth.registerGenericError"));
       console.error(e);
     }
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <LanguageSwitch style={{ position: "absolute", top: 52, right: 16, zIndex: 10 }} color={theme.primary} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
@@ -107,24 +108,24 @@ export default function Register() {
             {/* <Text style={[styles.logoTitle, { color: theme.primary }]}></Text> */}
 
             <Text style={[styles.title, { color: theme.text }]}>
-              Buat Akun Baru
+              {t("auth.createAccount")}
             </Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Temukan dan sewa hunian terbaik dengan mudah dan praktis
+              {t("auth.registerSubtitle")}
             </Text>
           </View>
 
           {/* ================= FORM ================= */}
           <View style={styles.form}>
             <Input
-              placeholder="Nama Lengkap"
+              placeholder={t("auth.fullName")}
               value={fullName}
               onChangeText={setFullName}
               icon="person-outline"
             />
 
             <Input
-              placeholder="Email"
+              placeholder={t("auth.email")}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -133,7 +134,7 @@ export default function Register() {
             />
 
             <Input
-              placeholder="Nomor Telepon"
+              placeholder={t("auth.phone")}
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
@@ -141,7 +142,7 @@ export default function Register() {
             />
 
             <Input
-              placeholder="Kata Sandi"
+              placeholder={t("auth.password")}
               value={password}
               onChangeText={setPassword}
               isPassword
@@ -149,7 +150,7 @@ export default function Register() {
             />
 
             <Input
-              placeholder="Konfirmasi Kata Sandi"
+              placeholder={t("auth.confirmPassword")}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               isPassword
@@ -158,7 +159,7 @@ export default function Register() {
 
             {/* Dropdown Pilihan Jenis Akun */}
             <View style={styles.dropdownContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Jenis Akun</Text>
+              <Text style={[styles.label, { color: theme.text }]}>{t("auth.accountType")}</Text>
               <TouchableOpacity
                 style={[
                   styles.dropdownHeader,
@@ -180,7 +181,7 @@ export default function Register() {
                     style={styles.dropdownIcon}
                   />
                   <Text style={[styles.dropdownValueText, { color: theme.text }]}>
-                    {userType === "buyer" ? "Pencari Hunian" : "Pemilik Properti"}
+                    {userType === "buyer" ? t("auth.homeSeeker") : t("auth.owner")}
                   </Text>
                 </View>
                 <Ionicons
@@ -230,7 +231,7 @@ export default function Register() {
                         userType === "buyer" && { color: theme.primary, fontWeight: "600" },
                       ]}
                     >
-                      Pencari Hunian
+                      {t("auth.homeSeeker")}
                     </Text>
                   </TouchableOpacity>
 
@@ -259,7 +260,7 @@ export default function Register() {
                         userType === "owner" && { color: theme.primary, fontWeight: "600" },
                       ]}
                     >
-                      Pemilik Properti
+                      {t("auth.owner")}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -278,11 +279,11 @@ export default function Register() {
                 color={agreeTerms ? theme.primary : theme.textSecondary}
               />
               <Text style={[styles.checkboxText, { color: theme.textSecondary }]}>
-                Saya menyetujui{" "}
+                {t("auth.agreePrefix")}{" "}
                 <Text style={{ color: theme.primary, fontWeight: "600" }}>
-                  Syarat & Ketentuan
+                  {t("auth.terms")}
                 </Text>{" "}
-                yang berlaku
+                {t("auth.agreeSuffix")}
               </Text>
             </TouchableOpacity>
 
@@ -300,7 +301,7 @@ export default function Register() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text style={styles.registerText}>Daftar Sekarang</Text>
+                  <Text style={styles.registerText}>{t("auth.registerNow")}</Text>
                   <Ionicons name="arrow-forward-outline" size={18} color="#fff" />
                 </>
               )}
@@ -310,7 +311,7 @@ export default function Register() {
             <View style={styles.dividerRow}>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <Text style={[styles.dividerText, { color: theme.textSecondary }]}>
-                atau daftar dengan
+                {t("auth.orRegisterWith")}
               </Text>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
             </View>
@@ -318,23 +319,23 @@ export default function Register() {
             {/* ================= SOCIAL LOGIN ================= */}
             <TouchableOpacity
               style={[styles.socialBtn, { borderColor: theme.border, borderRadius: theme.borderRadius }]}
-              onPress={() => Alert.alert("Informasi", "Pendaftaran dengan Google akan segera tersedia.")}
+              onPress={() => Alert.alert(t("common.info"), t("auth.googleSoon"))}
               activeOpacity={0.8}
             >
               <Ionicons name="logo-google" size={20} color="#DB4437" />
               <Text style={[styles.socialText, { color: theme.text }]}>
-                Daftar dengan Google
+                {t("auth.registerWithGoogle")}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.socialBtn, { borderColor: theme.border, borderRadius: theme.borderRadius }]}
-              onPress={() => Alert.alert("Informasi", "Pendaftaran dengan Apple akan segera tersedia.")}
+              onPress={() => Alert.alert(t("common.info"), t("auth.appleSoon"))}
               activeOpacity={0.8}
             >
               <Ionicons name="logo-apple" size={20} color={theme.text} />
               <Text style={[styles.socialText, { color: theme.text }]}>
-                Daftar dengan Apple
+                {t("auth.registerWithApple")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -342,11 +343,11 @@ export default function Register() {
           {/* ================= FOOTER ================= */}
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: theme.textSecondary }]}>
-              Sudah punya akun?
+              {t("auth.alreadyHaveAccount")}
             </Text>
             <TouchableOpacity onPress={() => router.push("/auth/login")}>
               <Text style={[styles.footerLink, { color: theme.primary }]}>
-                {" "}Masuk
+                {" "}{t("auth.login")}
               </Text>
             </TouchableOpacity>
           </View>

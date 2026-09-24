@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 
@@ -12,6 +13,7 @@ interface DisasterDonutChartProps {
 export const DisasterDonutChart: React.FC<DisasterDonutChartProps> = ({
   distribution,
 }) => {
+  const { t } = useTranslation();
   const { low = 0, medium = 0, high = 0 } = distribution || {};
   const totalLayers = 6;
 
@@ -32,7 +34,7 @@ export const DisasterDonutChart: React.FC<DisasterDonutChartProps> = ({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.chartTitle}>Disaster Risk Category Distribution</Text>
+      <Text style={styles.chartTitle}>{t("risk.chartTitle")}</Text>
 
       <View style={styles.chartBodyRow}>
         {/* DONUT RING CONTAINER */}
@@ -58,7 +60,7 @@ export const DisasterDonutChart: React.FC<DisasterDonutChartProps> = ({
           {/* INNER HOLE (CENTER OF DONUT) */}
           <View style={styles.donutInnerHole}>
             <Text style={styles.centerNumber}>6</Text>
-            <Text style={styles.centerLabel}>Disaster Layers</Text>
+            <Text style={styles.centerLabel}>{t("layers.disasterGroup")}</Text>
           </View>
         </View>
 
@@ -67,21 +69,21 @@ export const DisasterDonutChart: React.FC<DisasterDonutChartProps> = ({
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: lowColor }]} />
             <Text style={styles.legendText}>
-              <Text style={{ fontWeight: "800" }}>🟢 Low</Text> ({low})
+              <Text style={{ fontWeight: "800" }}>🟢 {t("risk.low")}</Text> ({low})
             </Text>
           </View>
 
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: mediumColor }]} />
             <Text style={styles.legendText}>
-              <Text style={{ fontWeight: "800" }}>🟡 Medium</Text> ({medium})
+              <Text style={{ fontWeight: "800" }}>🟡 {t("risk.medium")}</Text> ({medium})
             </Text>
           </View>
 
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: highColor }]} />
             <Text style={styles.legendText}>
-              <Text style={{ fontWeight: "800" }}>🔴 High</Text> ({high})
+              <Text style={{ fontWeight: "800" }}>🔴 {t("risk.high")}</Text> ({high})
             </Text>
           </View>
         </View>
@@ -89,9 +91,7 @@ export const DisasterDonutChart: React.FC<DisasterDonutChartProps> = ({
 
       {/* CAPTION BELOW CHART */}
       <Text style={styles.captionText}>
-        The chart represents the distribution of disaster risk categories derived
-        from six official BPBD/BNPB (InaRISK) disaster layers through PostGIS
-        spatial overlay analysis.
+        {t("risk.chartCaption")}
       </Text>
     </View>
   );

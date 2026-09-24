@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import i18n from "../utils/i18n";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -46,15 +48,15 @@ const DISASTER_COLOR_MAP: Record<string, string> = Object.fromEntries(
 );
 
 /** Quick layer chips on top of the map — colors match the polygons drawn for each layer */
-const QUICK_DISASTER_LAYERS: { id: DisasterType; label: string; color: string }[] = (
+const QUICK_DISASTER_LAYERS: { id: DisasterType; emoji: string; color: string }[] = (
   [
-    { id: "flood", label: "Banjir 🌊" },
-    { id: "landslide", label: "Longsor ⛰️" },
-    { id: "eruption", label: "Erupsi Gunung 🌋" },
-    { id: "extreme_weather", label: "Cuaca Ekstrem ⚡" },
-    { id: "drought", label: "Kekeringan 🌵" },
-    { id: "liquefaction", label: "Likuefaksi 🌍" },
-  ] as { id: DisasterType; label: string }[]
+    { id: "flood", emoji: "🌊" },
+    { id: "landslide", emoji: "⛰️" },
+    { id: "eruption", emoji: "🌋" },
+    { id: "extreme_weather", emoji: "⚡" },
+    { id: "drought", emoji: "🌵" },
+    { id: "liquefaction", emoji: "🌍" },
+  ] as { id: DisasterType; emoji: string }[]
 ).map((l) => ({ ...l, color: DISASTER_COLOR_MAP[l.id] }));
 
 /** Property marker look: icon per property type, color per listing (dijual / disewa) */
@@ -74,19 +76,20 @@ const CLEAN_MAP_STYLE = [
   { featureType: "transit", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
 ];
 
-/** Short Indonesian price label: 1,2 M · 850 Jt · 3,5 Jt/bln */
+/** Short price label in the app language: 1,2 M · 850 Jt · 3,5 Jt/bln (id) — 1.2 B · 850 M · 3.5 M/mo (en) */
 function formatShortPrice(price: number | undefined, isRent: boolean): string {
-  if (!price) return "Harga -";
+  if (!price) return i18n.t("price.none");
+  const dec = i18n.language?.startsWith("en") ? "." : ",";
   let label: string;
   if (price >= 1_000_000_000) {
-    label = `${(price / 1_000_000_000).toFixed(price % 1_000_000_000 === 0 ? 0 : 1).replace(".", ",")} M`;
+    label = `${(price / 1_000_000_000).toFixed(price % 1_000_000_000 === 0 ? 0 : 1).replace(".", dec)} ${i18n.t("price.billion")}`;
   } else if (price >= 1_000_000) {
     const jt = price / 1_000_000;
-    label = `${jt >= 100 ? Math.round(jt) : jt.toFixed(jt % 1 === 0 ? 0 : 1).replace(".", ",")} Jt`;
+    label = `${jt >= 100 ? Math.round(jt) : jt.toFixed(jt % 1 === 0 ? 0 : 1).replace(".", dec)} ${i18n.t("price.million")}`;
   } else {
-    label = `${Math.round(price / 1000)} Rb`;
+    label = `${Math.round(price / 1000)} ${i18n.t("price.thousand")}`;
   }
-  return isRent ? `${label}/bln` : label;
+  return isRent ? `${label}${i18n.t("property.perMonthShort")}` : label;
 }
 
 /** Facility layers (Sekolah, Rumah Sakit, …) keyed by OSM amenity */
@@ -109,7 +112,7 @@ const FacilityMarker = React.memo(function FacilityMarker({ facility }: { facili
     <Marker
       coordinate={{ latitude: facility.lat, longitude: facility.lng }}
       title={facility.name}
-      description={layer.name}
+      description={i18n.t(`layers.${layer.id}`)}
       tracksViewChanges={tracks}
       anchor={{ x: 0.5, y: 0.5 }}
     >
@@ -203,6 +206,7 @@ function getDisasterPolygonColors(poly: DisasterPolygon): {
    MAIN MAP SCREEN
    ============================================= */
 export default function HomeGuestMap() {
+  const { t } = useTranslation();
   const mapRef = useRef<MapView>(null);
   const router = useRouter();
   // ?focusId=<landId> — opened from a property's "Fullscreen Map": fly there and open its popup
@@ -290,7 +294,7 @@ export default function HomeGuestMap() {
       }
       console.error("Layer fetch error:", err);
       if (!controller.signal.aborted) {
-        setLayerError("Gagal memuat layer. Periksa koneksi ke server.");
+        setLayerError(i18n.t("maps.layerLoadError"));
         setDisasterPolygons([]);
       }
     } finally {
@@ -590,7 +594,7 @@ export default function HomeGuestMap() {
         <View style={styles.searchBox}>
           <Ionicons name="search-outline" size={18} color="#6B7280" />
           <TextInput
-            placeholder="Search property, address, district..."
+            placeholder={t("maps.searchPlaceholder")}
             placeholderTextColor="#9CA3AF"
             value={search}
             onChangeText={setSearch}
@@ -636,7 +640,7 @@ export default function HomeGuestMap() {
                   <ActivityIndicator size="small" color={isActive ? "#FFF" : layer.color} style={{ marginRight: 2 }} />
                 )}
                 <Text style={{ fontSize: 11, fontWeight: "800", color: isActive ? "#FFF" : "#334155" }}>
-                  {layer.label}
+                  {t(`layers.${layer.id}`)} {layer.emoji}
                 </Text>
               </TouchableOpacity>
             );
@@ -800,9 +804,9 @@ export default function HomeGuestMap() {
       {activePropertyLayers.includes("properties") && (
         <View style={styles.propertyLegend} pointerEvents="none">
           <View style={[styles.propertyLegendDot, { backgroundColor: LISTING_COLOR.sale }]} />
-          <Text style={styles.propertyLegendText}>Dijual</Text>
+          <Text style={styles.propertyLegendText}>{t("property.forSale")}</Text>
           <View style={[styles.propertyLegendDot, { backgroundColor: LISTING_COLOR.rent, marginLeft: 8 }]} />
-          <Text style={styles.propertyLegendText}>Disewa</Text>
+          <Text style={styles.propertyLegendText}>{t("property.forRent")}</Text>
         </View>
       )}
 
@@ -810,7 +814,7 @@ export default function HomeGuestMap() {
       {isFacilityLoading && (
         <View style={styles.facilityLoadingPill}>
           <ActivityIndicator size="small" color="#2E7D32" />
-          <Text style={styles.facilityLoadingText}>Memuat fasilitas…</Text>
+          <Text style={styles.facilityLoadingText}>{t("maps.loadingFacilities")}</Text>
         </View>
       )}
 
@@ -823,7 +827,7 @@ export default function HomeGuestMap() {
             onPress={() => loadLayers(activeDisasterLayers, visibleRegion)}
             style={styles.retryBtn}
           >
-            <Text style={styles.retryBtnText}>Retry</Text>
+            <Text style={styles.retryBtnText}>{t("common.retry")}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -853,43 +857,43 @@ export default function HomeGuestMap() {
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setFilterVisible(false)} />
           <View style={styles.filterSheet}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filter Properties</Text>
+              <Text style={styles.modalTitle}>{t("maps.filterTitle")}</Text>
               <TouchableOpacity onPress={() => setFilterVisible(false)}>
                 <Ionicons name="close" size={22} color="#111827" />
               </TouchableOpacity>
             </View>
 
             {/* TRANSACTION TYPE */}
-            <Text style={styles.sectionTitle}>Transaction Type</Text>
+            <Text style={styles.sectionTitle}>{t("maps.transactionType")}</Text>
             <View style={styles.chipRow}>
-              {["all", "sale", "rent"].map((t) => (
+              {["all", "sale", "rent"].map((tx) => (
                 <TouchableOpacity
-                  key={t}
+                  key={tx}
                   style={[
                     styles.chip,
                     {
-                      backgroundColor: type === t ? "#2E7D32" : "#F8FAFC",
-                      borderColor: type === t ? "#2E7D32" : "#E5E7EB",
+                      backgroundColor: type === tx ? "#2E7D32" : "#F8FAFC",
+                      borderColor: type === tx ? "#2E7D32" : "#E5E7EB",
                     },
                   ]}
-                  onPress={() => setType(t as any)}
+                  onPress={() => setType(tx as any)}
                 >
-                  <Text style={{ color: type === t ? "#FFF" : "#4B5563", fontWeight: "600" }}>
-                    {t === "all" ? "All" : t === "sale" ? "For Sale" : "For Rent"}
+                  <Text style={{ color: type === tx ? "#FFF" : "#4B5563", fontWeight: "600" }}>
+                    {tx === "all" ? t("common.all") : tx === "sale" ? t("property.forSale") : t("property.forRent")}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
             {/* DISASTER RISK LEVEL FILTER */}
-            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Disaster Risk Level</Text>
+            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>{t("maps.riskLevel")}</Text>
             <View style={styles.chipRow}>
               {[
-                { k: "all", l: "All Levels" },
-                { k: "low", l: "🟢 Rendah" },
-                { k: "medium", l: "🟡 Sedang" },
-                { k: "high", l: "🟠 Tinggi" },
-                { k: "very_high", l: "🔴 Sangat Tinggi" },
+                { k: "all", l: t("maps.allLevels") },
+                { k: "low", l: `🟢 ${t("risk.low")}` },
+                { k: "medium", l: `🟡 ${t("risk.medium")}` },
+                { k: "high", l: `🟠 ${t("risk.high")}` },
+                { k: "very_high", l: `🔴 ${t("risk.veryHigh")}` },
               ].map((rf) => (
                 <TouchableOpacity
                   key={rf.k}
@@ -915,12 +919,12 @@ export default function HomeGuestMap() {
             </View>
 
             {/* SORT BY */}
-            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>Sort By</Text>
+            <Text style={[styles.sectionTitle, { marginTop: 14 }]}>{t("maps.sortBy")}</Text>
             <View style={styles.chipRow}>
               {[
-                { k: "distance", l: "Nearest" },
-                { k: "low", l: "Lowest Price" },
-                { k: "high", l: "Highest Price" },
+                { k: "distance", l: t("maps.nearest") },
+                { k: "low", l: t("maps.lowestPrice") },
+                { k: "high", l: t("maps.highestPrice") },
               ].map((s) => (
                 <TouchableOpacity
                   key={s.k}
@@ -942,7 +946,7 @@ export default function HomeGuestMap() {
 
             {/* RADIUS */}
             <View style={styles.radiusHeader}>
-              <Text style={styles.sectionTitle}>Search Radius</Text>
+              <Text style={styles.sectionTitle}>{t("maps.searchRadius")}</Text>
               <Text style={styles.radiusValue}>{radius} km</Text>
             </View>
             <Slider
@@ -961,7 +965,7 @@ export default function HomeGuestMap() {
               style={styles.applyFilterBtn}
               onPress={() => setFilterVisible(false)}
             >
-              <Text style={styles.applyFilterBtnText}>Apply Filter</Text>
+              <Text style={styles.applyFilterBtnText}>{t("maps.applyFilter")}</Text>
             </TouchableOpacity>
           </View>
         </View>

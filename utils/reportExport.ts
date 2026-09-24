@@ -18,6 +18,10 @@ import * as XLSX from "xlsx";
 import type { Land } from "../contexts/LandContext";
 import type { ApiUser } from "../services/UserService";
 import type { ApiComplaint } from "../services/ComplaintService";
+import i18n from "./i18n";
+
+// Report text follows the app language at the moment the report is generated
+const T = (key: string, opts?: Record<string, unknown>) => i18n.t(key, opts) as string;
 
 export type ReportKind = "property" | "verification" | "users" | "complaints";
 export type ExportFormat = "pdf" | "excel";
@@ -43,18 +47,20 @@ interface Report {
 
 const SAF_DIR_KEY = "@lokatani_report_dir";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const months = () => (i18n.language?.startsWith("en") ? MONTHS_EN : MONTHS_ID);
 
 // "YYYY-MM-DD" in local time
 export const toDateStr = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-export const formatDate = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+export const formatDate = (d: Date) => `${d.getDate()} ${months()[d.getMonth()]} ${d.getFullYear()}`;
 
 const formatDay = (value?: string | null) => {
   if (!value) return "-";
   const [y, m, d] = value.slice(0, 10).split("-").map(Number);
-  return y && m && d ? `${d} ${MONTHS[m - 1]} ${y}` : value;
+  return y && m && d ? `${d} ${months()[m - 1]} ${y}` : value;
 };
 
 // Inclusive date-range check on an ISO/date string; rows without a date are excluded
@@ -66,8 +72,8 @@ const inRange = (value: string | null | undefined, range: DateRange) => {
 
 const rupiah = (n?: number) => (n == null ? "-" : `Rp ${n.toLocaleString("id-ID")}`);
 
-const TYPE_LABEL: Record<string, string> = { house: "Rumah", apartment: "Apartemen", villa: "Villa" };
-const COMPLAINT_STATUS: Record<string, string> = { open: "Open", in_progress: "In Progress", resolved: "Resolved" };
+const typeLabel = (type?: string) => (type ? T(`property.type.${type}`, { defaultValue: type }) : "-");
+const statusLabel = (status?: string) => (status ? T(`reportDoc.status.${status}`, { defaultValue: status }) : "-");
 
 /* ================= BUILD ================= */
 function buildReport(kind: ReportKind, range: DateRange, src: ReportSource): Report {
@@ -77,45 +83,45 @@ function buildReport(kind: ReportKind, range: DateRange, src: ReportSource): Rep
   switch (kind) {
     case "property":
       return {
-        title: "Laporan Data Properti",
-        fileSlug: "properti",
+        title: T("reportDoc.propertyTitle"),
+        fileSlug: T("reportDoc.slug.property"),
         summary: [
-          { label: "Total Properti", value: lands.length },
-          { label: "Disetujui", value: countStatus("Approved") },
-          { label: "Pending", value: countStatus("Pending") },
-          { label: "Ditolak", value: countStatus("Rejected") },
-          { label: "Terjual", value: countStatus("Sold") },
+          { label: T("reportDoc.totalProperties"), value: lands.length },
+          { label: statusLabel("Approved"), value: countStatus("Approved") },
+          { label: statusLabel("Pending"), value: countStatus("Pending") },
+          { label: statusLabel("Rejected"), value: countStatus("Rejected") },
+          { label: statusLabel("Sold"), value: countStatus("Sold") },
         ],
-        columns: ["No", "Nama Properti", "Tipe", "Transaksi", "Harga", "Lokasi", "Pemilik", "Status", "Tanggal"],
+        columns: [T("reportDoc.col.no"), T("reportDoc.col.propertyName"), T("reportDoc.col.type"), T("reportDoc.col.transaction"), T("reportDoc.col.price"), T("reportDoc.col.location"), T("reportDoc.col.owner"), T("reportDoc.col.status"), T("reportDoc.col.date")],
         rows: lands.map((l, i) => [
           i + 1,
           l.name,
-          TYPE_LABEL[l.type ?? ""] ?? l.type ?? "-",
-          l.isForSale === false ? "Disewa" : "Dijual",
+          typeLabel(l.type),
+          l.isForSale === false ? T("property.forRent") : T("property.forSale"),
           rupiah(l.price),
           l.location,
           l.owner ?? "-",
-          l.status ?? "-",
+          statusLabel(l.status),
           formatDay(l.createdAt),
         ]),
       };
 
     case "verification":
       return {
-        title: "Laporan Verifikasi Properti",
-        fileSlug: "verifikasi",
+        title: T("reportDoc.verificationTitle"),
+        fileSlug: T("reportDoc.slug.verification"),
         summary: [
-          { label: "Total Pengajuan", value: lands.length },
-          { label: "Disetujui", value: countStatus("Approved") },
-          { label: "Pending", value: countStatus("Pending") },
-          { label: "Ditolak", value: countStatus("Rejected") },
+          { label: T("reportDoc.totalSubmissions"), value: lands.length },
+          { label: statusLabel("Approved"), value: countStatus("Approved") },
+          { label: statusLabel("Pending"), value: countStatus("Pending") },
+          { label: statusLabel("Rejected"), value: countStatus("Rejected") },
         ],
-        columns: ["No", "Nama Properti", "Pemilik", "Status", "Alasan Penolakan", "Tanggal Pengajuan"],
+        columns: [T("reportDoc.col.no"), T("reportDoc.col.propertyName"), T("reportDoc.col.owner"), T("reportDoc.col.status"), T("reportDoc.col.rejectionReason"), T("reportDoc.col.submittedAt")],
         rows: lands.map((l, i) => [
           i + 1,
           l.name,
           l.owner ?? "-",
-          l.status ?? "-",
+          statusLabel(l.status),
           l.rejectionReason || "-",
           formatDay(l.createdAt),
         ]),
@@ -124,23 +130,23 @@ function buildReport(kind: ReportKind, range: DateRange, src: ReportSource): Rep
     case "users": {
       const users = src.users.filter((u) => inRange(u.joinDate, range));
       return {
-        title: "Laporan Pengguna",
-        fileSlug: "pengguna",
+        title: T("reportDoc.usersTitle"),
+        fileSlug: T("reportDoc.slug.users"),
         summary: [
-          { label: "Total Pengguna", value: users.length },
-          { label: "Aktif", value: users.filter((u) => u.status === "active").length },
-          { label: "Nonaktif", value: users.filter((u) => u.status === "inactive").length },
-          { label: "Pemilik Properti", value: users.filter((u) => u.role === "owner").length },
-          { label: "Pembeli", value: users.filter((u) => u.role === "buyer").length },
+          { label: T("reportDoc.totalUsers"), value: users.length },
+          { label: T("admin.users.active"), value: users.filter((u) => u.status === "active").length },
+          { label: T("admin.users.inactive"), value: users.filter((u) => u.status === "inactive").length },
+          { label: T("auth.owner"), value: users.filter((u) => u.role === "owner").length },
+          { label: T("admin.users.buyers"), value: users.filter((u) => u.role === "buyer").length },
         ],
-        columns: ["No", "Nama", "Email", "Telepon", "Peran", "Status", "Tanggal Daftar"],
+        columns: [T("reportDoc.col.no"), T("reportDoc.col.name"), T("reportDoc.col.email"), T("reportDoc.col.phone"), T("reportDoc.col.role"), T("reportDoc.col.status"), T("reportDoc.col.joinedAt")],
         rows: users.map((u, i) => [
           i + 1,
           u.name,
           u.email,
           u.phone || "-",
-          u.role,
-          u.status === "active" ? "Aktif" : "Nonaktif",
+          T(`roles.${u.role}`, { defaultValue: u.role }),
+          u.status === "active" ? T("admin.users.active") : T("admin.users.inactive"),
           formatDay(u.joinDate),
         ]),
       };
@@ -149,23 +155,23 @@ function buildReport(kind: ReportKind, range: DateRange, src: ReportSource): Rep
     case "complaints": {
       const complaints = src.complaints.filter((c) => inRange(c.date, range));
       return {
-        title: "Laporan Keluhan",
-        fileSlug: "keluhan",
+        title: T("reportDoc.complaintsTitle"),
+        fileSlug: T("reportDoc.slug.complaints"),
         summary: [
-          { label: "Total Keluhan", value: complaints.length },
-          { label: "Open", value: complaints.filter((c) => c.status === "open").length },
-          { label: "In Progress", value: complaints.filter((c) => c.status === "in_progress").length },
-          { label: "Resolved", value: complaints.filter((c) => c.status === "resolved").length },
+          { label: T("reportDoc.totalComplaints"), value: complaints.length },
+          { label: T("complaint.statuses.open"), value: complaints.filter((c) => c.status === "open").length },
+          { label: T("complaint.statuses.in_progress"), value: complaints.filter((c) => c.status === "in_progress").length },
+          { label: T("complaint.statuses.resolved"), value: complaints.filter((c) => c.status === "resolved").length },
         ],
-        columns: ["No", "Tanggal", "Pelapor", "Properti", "Kategori", "Pesan", "Status"],
+        columns: [T("reportDoc.col.no"), T("reportDoc.col.date"), T("reportDoc.col.reporter"), T("reportDoc.col.property"), T("reportDoc.col.category"), T("reportDoc.col.message"), T("reportDoc.col.status")],
         rows: complaints.map((c, i) => [
           i + 1,
           formatDay(c.date),
           c.reporter ?? "-",
           c.property ?? "-",
-          c.category,
+          T(`complaint.categories.${c.category.replace(/\s/g, "")}`, { defaultValue: c.category }),
           c.message,
-          COMPLAINT_STATUS[c.status] ?? c.status,
+          T(`complaint.statuses.${c.status}`, { defaultValue: c.status }),
         ]),
       };
     }
@@ -178,14 +184,14 @@ const esc = (v: string | number) =>
 
 function toHtml(report: Report, range: DateRange): string {
   const period = `${formatDate(range.start)} – ${formatDate(range.end)}`;
-  const generated = new Date().toLocaleString("id-ID");
+  const generated = new Date().toLocaleString(i18n.language?.startsWith("en") ? "en-US" : "id-ID");
   const summary = report.summary
     .map((s) => `<div class="stat"><div class="val">${s.value}</div><div class="lbl">${esc(s.label)}</div></div>`)
     .join("");
   const head = report.columns.map((c) => `<th>${esc(c)}</th>`).join("");
   const body = report.rows.length
     ? report.rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")
-    : `<tr><td colspan="${report.columns.length}" class="empty">Tidak ada data pada periode ini.</td></tr>`;
+    : `<tr><td colspan="${report.columns.length}" class="empty">${esc(T("reportDoc.noData"))}</td></tr>`;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8" />
 <style>
@@ -204,9 +210,9 @@ function toHtml(report: Report, range: DateRange): string {
   tr:nth-child(even) td { background: #F8FAFC; }
   .empty { text-align: center; color: #64748B; padding: 20px; }
 </style></head><body>
-  <div class="brand">LOKATANI</div>
+  <div class="brand">TITIKHUNI</div>
   <h1>${esc(report.title)}</h1>
-  <div class="meta">Periode: ${esc(period)} &nbsp;·&nbsp; Dibuat: ${esc(generated)}</div>
+  <div class="meta">${esc(T("reportDoc.period", { period }))} &nbsp;·&nbsp; ${esc(T("reportDoc.generated", { date: generated }))}</div>
   <div class="stats">${summary}</div>
   <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
 </body></html>`;
@@ -216,7 +222,7 @@ function toXlsxBase64(report: Report, range: DateRange): string {
   const period = `${formatDate(range.start)} – ${formatDate(range.end)}`;
   const aoa: (string | number)[][] = [
     [report.title],
-    [`Periode: ${period}`],
+    [T("reportDoc.period", { period })],
     [],
     ...report.summary.map((s) => [s.label, s.value]),
     [],
@@ -228,7 +234,7 @@ function toXlsxBase64(report: Report, range: DateRange): string {
     wch: Math.min(50, Math.max(c.length, ...report.rows.map((r) => String(r[i] ?? "").length), 8) + 2),
   }));
   const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, sheet, "Laporan");
+  XLSX.utils.book_append_sheet(book, sheet, T("reportDoc.sheetName"));
   return XLSX.write(book, { type: "base64", bookType: "xlsx" });
 }
 
@@ -270,7 +276,7 @@ export async function exportReport(
 ): Promise<ExportResult> {
   const report = buildReport(kind, range, src);
   const ext = format === "pdf" ? "pdf" : "xlsx";
-  const fileName = `laporan-${report.fileSlug}_${toDateStr(range.start)}_${toDateStr(range.end)}.${ext}`;
+  const fileName = `${T("reportDoc.slug.prefix")}-${report.fileSlug}_${toDateStr(range.start)}_${toDateStr(range.end)}.${ext}`;
 
   // 1) Produce the file content as base64
   let base64: string;
@@ -300,7 +306,7 @@ export async function exportReport(
   const cacheUri = `${FileSystem.cacheDirectory}${fileName}`;
   await FileSystem.writeAsStringAsync(cacheUri, base64, { encoding: FileSystem.EncodingType.Base64 });
   if (!(await Sharing.isAvailableAsync())) {
-    throw new Error("Fitur berbagi file tidak tersedia di perangkat ini.");
+    throw new Error(T("reportDoc.sharingUnavailable"));
   }
   await Sharing.shareAsync(cacheUri, {
     mimeType: MIME[format],

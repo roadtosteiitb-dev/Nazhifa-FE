@@ -6,6 +6,7 @@
  *  - Live disaster-risk summary from GET /api/lands/{id}/risk
  *  - Actions: detail page, road navigation, share
  */
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -37,7 +38,6 @@ const PLACEHOLDER = "https://images.unsplash.com/photo-1501785888041-af3ef285b47
 const SALE = "#2E7D32";
 const RENT = "#2563EB";
 
-const TYPE_LABEL: Record<string, string> = { house: "Rumah", apartment: "Apartemen", villa: "Villa" };
 const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   house: "home",
   apartment: "business",
@@ -45,6 +45,8 @@ const TYPE_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 type RiskState = BackendRiskApiResponse | "loading" | "error";
+
+const RISK_KEY: Record<number, string> = { 1: "risk.lowRisk", 2: "risk.mediumRisk", 3: "risk.highRisk" };
 
 interface Props {
   properties: Land[]; // only properties with coordinates
@@ -60,6 +62,7 @@ const formatArea = (v?: string) => {
 };
 
 export function PropertyPreviewCarousel({ properties, activeId, onChangeActive, onClose, onOpenDetail }: Props) {
+  const { t } = useTranslation();
   const listRef = useRef<FlatList<Land>>(null);
   const slideY = useRef(new Animated.Value(320)).current;
   const [risks, setRisks] = useState<Record<string, RiskState>>({});
@@ -188,24 +191,25 @@ function PreviewCard({
     return list.length ? list : [PLACEHOLDER];
   }, [land.image, land.images]);
   const [imgIndex, setImgIndex] = useState(0);
+  const { t } = useTranslation();
 
   const isRent = land.isForSale === false;
   const accent = isRent ? RENT : SALE;
   const typeKey = land.type ?? "house";
 
   const specs = [
-    land.bedrooms ? { icon: "bed-outline" as const, text: `${land.bedrooms} KT` } : null,
-    land.bathrooms ? { icon: "water-outline" as const, text: `${land.bathrooms} KM` } : null,
-    formatArea(land.area?.land) ? { icon: "resize-outline" as const, text: `LT ${formatArea(land.area?.land)}` } : null,
+    land.bedrooms ? { icon: "bed-outline" as const, text: t("property.bedroomsShort", { count: land.bedrooms }) } : null,
+    land.bathrooms ? { icon: "water-outline" as const, text: t("property.bathroomsShort", { count: land.bathrooms }) } : null,
+    formatArea(land.area?.land) ? { icon: "resize-outline" as const, text: `${t("property.landAreaShort")} ${formatArea(land.area?.land)}` } : null,
     formatArea(land.area?.building)
-      ? { icon: "cube-outline" as const, text: `LB ${formatArea(land.area?.building)}` }
+      ? { icon: "cube-outline" as const, text: `${t("property.buildingAreaShort")} ${formatArea(land.area?.building)}` }
       : null,
   ].filter(Boolean) as { icon: keyof typeof Ionicons.glyphMap; text: string }[];
 
   const handleShare = () => {
     const coords = land.center ? `\nhttps://maps.google.com/?q=${land.center.latitude},${land.center.longitude}` : "";
     Share.share({
-      message: `${land.name} • Rp ${(land.price ?? 0).toLocaleString("id-ID")}${isRent ? "/bln" : ""}\n📍 ${land.location}${coords}`,
+      message: `${land.name} • Rp ${(land.price ?? 0).toLocaleString("id-ID")}${isRent ? t("property.perMonthShort") : ""}\n📍 ${land.location}${coords}`,
     }).catch(() => {});
   };
 
@@ -220,11 +224,11 @@ function PreviewCard({
         <Image source={{ uri: images[imgIndex] }} style={styles.photo} />
         <View style={styles.photoBadges}>
           <View style={[styles.badge, { backgroundColor: accent }]}>
-            <Text style={styles.badgeText}>{isRent ? "DISEWA" : "DIJUAL"}</Text>
+            <Text style={styles.badgeText}>{isRent ? t("property.forRentBadge") : t("property.forSaleBadge")}</Text>
           </View>
           <View style={[styles.badge, { backgroundColor: "rgba(17,24,39,0.75)" }]}>
             <Ionicons name={TYPE_ICON[typeKey] ?? "home"} size={11} color="#FFF" />
-            <Text style={styles.badgeText}>{TYPE_LABEL[typeKey] ?? typeKey}</Text>
+            <Text style={styles.badgeText}>{t(`property.type.${typeKey}`, { defaultValue: typeKey })}</Text>
           </View>
         </View>
         {images.length > 1 && (
@@ -248,7 +252,7 @@ function PreviewCard({
 
         <Text style={[styles.price, { color: accent }]}>
           Rp {(land.price ?? 0).toLocaleString("id-ID")}
-          {isRent && <Text style={styles.priceUnit}> /bulan</Text>}
+          {isRent && <Text style={styles.priceUnit}> {t("property.perMonth")}</Text>}
         </Text>
 
         {specs.length > 0 && (
@@ -267,19 +271,19 @@ function PreviewCard({
           {risk === undefined || risk === "loading" ? (
             <View style={styles.riskLoading}>
               <ActivityIndicator size="small" color="#9CA3AF" />
-              <Text style={styles.riskMuted}>Menganalisis risiko bencana…</Text>
+              <Text style={styles.riskMuted}>{t("risk.analyzing")}</Text>
             </View>
           ) : risk === "error" ? (
             <TouchableOpacity style={styles.riskLoading} onPress={onRetryRisk}>
               <Ionicons name="refresh" size={14} color="#DC2626" />
-              <Text style={[styles.riskMuted, { color: "#DC2626" }]}>Gagal memuat risiko — ketuk untuk ulang</Text>
+              <Text style={[styles.riskMuted, { color: "#DC2626" }]}>{t("risk.loadErrorTap")}</Text>
             </TouchableOpacity>
           ) : (
             <>
               <View style={[styles.overallRisk, { backgroundColor: NUMERIC_RISK_MAP[risk.overallRisk].bg }]}>
                 <Ionicons name="shield-checkmark" size={12} color={NUMERIC_RISK_MAP[risk.overallRisk].color} />
                 <Text style={[styles.overallRiskText, { color: NUMERIC_RISK_MAP[risk.overallRisk].color }]}>
-                  {NUMERIC_RISK_MAP[risk.overallRisk].text}
+                  {t(RISK_KEY[risk.overallRisk])}
                 </Text>
               </View>
               {DISASTER_LAYERS.map((d) => {
@@ -300,7 +304,7 @@ function PreviewCard({
         {/* Actions */}
         <View style={styles.actions}>
           <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: accent }]} onPress={onOpenDetail} activeOpacity={0.85}>
-            <Text style={styles.primaryBtnText}>Lihat Detail</Text>
+            <Text style={styles.primaryBtnText}>{t("common.viewDetail")}</Text>
             <Ionicons name="arrow-forward" size={14} color="#FFF" />
           </TouchableOpacity>
           <TouchableOpacity
@@ -309,11 +313,11 @@ function PreviewCard({
             activeOpacity={0.8}
           >
             <Ionicons name="navigate" size={18} color={accent} />
-            <Text style={[styles.iconBtnText, { color: accent }]}>Rute</Text>
+            <Text style={[styles.iconBtnText, { color: accent }]}>{t("common.route")}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn} onPress={handleShare} activeOpacity={0.8}>
             <Ionicons name="share-social-outline" size={18} color="#374151" />
-            <Text style={styles.iconBtnText}>Bagikan</Text>
+            <Text style={styles.iconBtnText}>{t("common.share")}</Text>
           </TouchableOpacity>
         </View>
       </View>

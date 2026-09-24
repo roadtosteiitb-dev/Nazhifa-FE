@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, View, Text, ActivityIndicator, TouchableOpacity } from "react-native";
 import MapView, { Marker, MapPressEvent } from "react-native-maps";
@@ -7,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 
 export default function MapPicker() {
+  const { t } = useTranslation();
   const [region, setRegion] = useState<any>(null);
   const [marker, setMarker] = useState<any>(null);
   const [address, setAddress] = useState<string>("");
@@ -19,7 +21,7 @@ export default function MapPicker() {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        alert("Permission to access location is required!");
+        alert(t("auth.locationPermission"));
         return;
       }
 
@@ -77,7 +79,7 @@ export default function MapPicker() {
 
       <View style={[styles.addressContainer, { backgroundColor: theme.surface }]}>
         <Text style={[styles.addressText, { color: theme.text }]} numberOfLines={2}>
-          {address || "Pilih lokasi di peta"}
+          {address || t("mapPicker.choose")}
         </Text>
         <TouchableOpacity
           style={[styles.confirmButton, { backgroundColor: theme.primary }]}

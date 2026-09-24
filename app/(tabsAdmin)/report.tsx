@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -30,18 +31,19 @@ const TEXT_SECONDARY = "#64748B";
 type ReportType = "property" | "users" | "verification" | "complaints";
 
 const reportTypes: { type: ReportType; label: string; desc: string; icon: string; color: string }[] = [
-  { type: "property", label: "Property Data", desc: "All property listings and details", icon: "business-outline", color: PRIMARY },
-  { type: "users", label: "User Activity", desc: "Registered users and their activity", icon: "people-outline", color: "#8B5CF6" },
-  { type: "verification", label: "Property Verification", desc: "Verification status and history", icon: "shield-checkmark-outline", color: WARNING },
-  { type: "complaints", label: "Complaints", desc: "User complaints and resolution status", icon: "alert-circle-outline", color: DANGER },
+  // label / desc are translation keys
+  { type: "property", label: "report.types.property", desc: "report.types.propertyDesc", icon: "business-outline", color: PRIMARY },
+  { type: "users", label: "report.types.users", desc: "report.types.usersDesc", icon: "people-outline", color: "#8B5CF6" },
+  { type: "verification", label: "report.types.verification", desc: "report.types.verificationDesc", icon: "shield-checkmark-outline", color: WARNING },
+  { type: "complaints", label: "report.types.complaints", desc: "report.types.complaintsDesc", icon: "alert-circle-outline", color: DANGER },
 ];
 
 const dateRanges = [
-  { label: "Last 7 Days", value: "7d" },
-  { label: "Last 30 Days", value: "30d" },
-  { label: "Last 3 Months", value: "3m" },
-  { label: "Last Year", value: "1y" },
-  { label: "Custom Range", value: "custom" },
+  { label: "report.ranges.7d", value: "7d" },
+  { label: "report.ranges.30d", value: "30d" },
+  { label: "report.ranges.3m", value: "3m" },
+  { label: "report.ranges.1y", value: "1y" },
+  { label: "report.ranges.custom", value: "custom" },
 ];
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -63,6 +65,7 @@ const presetRange = (value: string): { start: Date; end: Date } | null => {
 type PickerTarget = "start" | "end" | null;
 
 export default function ReportScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [selectedType, setSelectedType] = useState<ReportType | null>(null);
   const [selectedRange, setSelectedRange] = useState<string | null>(null);
@@ -110,7 +113,7 @@ export default function ReportScreen() {
       if (customEnd && customEnd < d) setCustomEnd(d);
     } else {
       if (customStart && d < customStart) {
-        Alert.alert("Tanggal tidak valid", "Tanggal akhir tidak boleh sebelum tanggal mulai.");
+        Alert.alert(t("report.invalidDate"), t("report.endBeforeStart"));
         return;
       }
       setCustomEnd(d);
@@ -133,8 +136,8 @@ export default function ReportScreen() {
   const handleGenerate = async (format: ExportFormat) => {
     if (!canGenerate || !selectedType || !activeRange) {
       Alert.alert(
-        "Incomplete",
-        isCustom ? "Pilih tanggal mulai dan tanggal akhir." : "Please select a report type and date range."
+        t("report.incomplete"),
+        isCustom ? t("report.chooseBothDates") : t("report.chooseTypeAndRange")
       );
       return;
     }
@@ -142,14 +145,14 @@ export default function ReportScreen() {
       setGeneratingFormat(format);
       const result = await exportReport(selectedType, format, activeRange, { lands, users, complaints });
       if (result.status === "saved") {
-        Alert.alert("Berhasil", `Laporan tersimpan sebagai:\n${result.fileName}`);
+        Alert.alert(t("common.success"), t("report.savedAs", { file: result.fileName }));
       } else if (result.status === "cancelled") {
-        Alert.alert("Dibatalkan", "Pilih folder penyimpanan untuk mengunduh laporan.");
+        Alert.alert(t("report.cancelledTitle"), t("report.cancelled"));
       }
       // "shared": the share sheet already gave the user feedback
     } catch (error: any) {
       console.error("❌ Export report error:", error);
-      Alert.alert("Gagal", error?.message || "Gagal membuat laporan.");
+      Alert.alert(t("common.failed"), error?.message || t("report.failed"));
     } finally {
       setGeneratingFormat(null);
     }
@@ -165,14 +168,14 @@ export default function ReportScreen() {
           <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.headerTitle}>Generate Report</Text>
-          <Text style={styles.headerSubtitle}>Export system data reports</Text>
+          <Text style={styles.headerTitle}>{t("homeAdmin.generateReportBtn")}</Text>
+          <Text style={styles.headerSubtitle}>{t("report.subtitle")}</Text>
         </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Report Type Selection */}
-        <Text style={styles.sectionLabel}>Report Type</Text>
+        <Text style={styles.sectionLabel}>{t("homeAdmin.reportType")}</Text>
         <View style={styles.typeGrid}>
           {reportTypes.map((rt) => {
             const isSelected = selectedType === rt.type;
@@ -185,8 +188,8 @@ export default function ReportScreen() {
                 <View style={[styles.typeIconWrap, { backgroundColor: rt.color + "15" }]}>
                   <Ionicons name={rt.icon as any} size={24} color={rt.color} />
                 </View>
-                <Text style={[styles.typeLabel, isSelected && { color: rt.color }]}>{rt.label}</Text>
-                <Text style={styles.typeDesc}>{rt.desc}</Text>
+                <Text style={[styles.typeLabel, isSelected && { color: rt.color }]}>{t(rt.label)}</Text>
+                <Text style={styles.typeDesc}>{t(rt.desc)}</Text>
                 {isSelected && (
                   <View style={[styles.checkBadge, { backgroundColor: rt.color }]}>
                     <Ionicons name="checkmark" size={14} color="#fff" />
@@ -198,7 +201,7 @@ export default function ReportScreen() {
         </View>
 
         {/* Date Range */}
-        <Text style={styles.sectionLabel}>Date Range</Text>
+        <Text style={styles.sectionLabel}>{t("homeAdmin.dateRange")}</Text>
         <View style={styles.rangeList}>
           {dateRanges.map((dr) => {
             const isSelected = selectedRange === dr.value;
@@ -214,7 +217,7 @@ export default function ReportScreen() {
                   color={isSelected ? PRIMARY : TEXT_SECONDARY}
                 />
                 <Text style={[styles.rangeText, isSelected && { color: PRIMARY, fontWeight: "700" }]}>
-                  {dr.label}
+                  {t(dr.label)}
                 </Text>
               </TouchableOpacity>
             );
@@ -233,11 +236,11 @@ export default function ReportScreen() {
                   onPress={() => openPicker(target)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.dateFieldLabel}>{target === "start" ? "Dari Tanggal" : "Sampai Tanggal"}</Text>
+                  <Text style={styles.dateFieldLabel}>{target === "start" ? t("report.fromDate") : t("report.toDate")}</Text>
                   <View style={styles.dateFieldValueRow}>
                     <Ionicons name="calendar-outline" size={16} color={value ? PRIMARY : TEXT_SECONDARY} />
                     <Text style={[styles.dateFieldValue, !value && { color: TEXT_SECONDARY }]}>
-                      {value ? formatDate(value) : "Pilih tanggal"}
+                      {value ? formatDate(value) : t("report.pickDate")}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -265,13 +268,13 @@ export default function ReportScreen() {
               <View style={styles.modalSheet}>
                 <View style={styles.modalHeader}>
                   <TouchableOpacity onPress={() => setPickerTarget(null)}>
-                    <Text style={styles.modalCancel}>Batal</Text>
+                    <Text style={styles.modalCancel}>{t("common.cancel")}</Text>
                   </TouchableOpacity>
                   <Text style={styles.modalTitle}>
-                    {pickerTarget === "start" ? "Dari Tanggal" : "Sampai Tanggal"}
+                    {pickerTarget === "start" ? t("report.fromDate") : t("report.toDate")}
                   </Text>
                   <TouchableOpacity onPress={confirmIos}>
-                    <Text style={styles.modalDone}>Pilih</Text>
+                    <Text style={styles.modalDone}>{t("report.choose")}</Text>
                   </TouchableOpacity>
                 </View>
                 <DateTimePicker
@@ -293,18 +296,18 @@ export default function ReportScreen() {
           <View style={styles.previewCard}>
             <Ionicons name="document-text-outline" size={20} color={PRIMARY} />
             <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={styles.previewTitle}>Report Summary</Text>
-              <Text style={styles.previewLine}>Type: {selectedTypeInfo?.label}</Text>
+              <Text style={styles.previewTitle}>{t("report.summary")}</Text>
+              <Text style={styles.previewLine}>{t("report.typeLine", { type: selectedTypeInfo ? t(selectedTypeInfo.label) : "-" })}</Text>
               <Text style={styles.previewLine}>
-                Period: {activeRange && `${formatDate(activeRange.start)} – ${formatDate(activeRange.end)}`}
+                {t("report.periodLine", { period: activeRange ? `${formatDate(activeRange.start)} – ${formatDate(activeRange.end)}` : "-" })}
               </Text>
-              <Text style={styles.previewLine}>Format: PDF / Excel (.xlsx)</Text>
+              <Text style={styles.previewLine}>{t("report.formatLine")}</Text>
             </View>
           </View>
         )}
 
         {/* Export Buttons */}
-        <Text style={styles.sectionLabel}>Export Format</Text>
+        <Text style={styles.sectionLabel}>{t("report.exportFormat")}</Text>
         <View style={styles.exportRow}>
           <TouchableOpacity
             style={[styles.exportBtn, !canGenerate && styles.exportBtnDisabled]}
@@ -314,12 +317,12 @@ export default function ReportScreen() {
             {generatingFormat === "pdf" ? (
               <>
                 <ActivityIndicator size="small" color={DANGER} />
-                <Text style={[styles.exportBtnText, { color: DANGER }]}>Membuat...</Text>
+                <Text style={[styles.exportBtnText, { color: DANGER }]}>{t("report.generating")}</Text>
               </>
             ) : (
               <>
                 <Ionicons name="document" size={20} color={canGenerate ? DANGER : TEXT_SECONDARY} />
-                <Text style={[styles.exportBtnText, canGenerate && { color: DANGER }]}>Export PDF</Text>
+                <Text style={[styles.exportBtnText, canGenerate && { color: DANGER }]}>{t("report.exportPdf")}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -332,12 +335,12 @@ export default function ReportScreen() {
             {generatingFormat === "excel" ? (
               <>
                 <ActivityIndicator size="small" color={SUCCESS} />
-                <Text style={[styles.exportBtnText, { color: SUCCESS }]}>Membuat...</Text>
+                <Text style={[styles.exportBtnText, { color: SUCCESS }]}>{t("report.generating")}</Text>
               </>
             ) : (
               <>
                 <Ionicons name="grid" size={20} color={canGenerate ? SUCCESS : TEXT_SECONDARY} />
-                <Text style={[styles.exportBtnText, canGenerate && { color: SUCCESS }]}>Export Excel</Text>
+                <Text style={[styles.exportBtnText, canGenerate && { color: SUCCESS }]}>{t("report.exportExcel")}</Text>
               </>
             )}
           </TouchableOpacity>

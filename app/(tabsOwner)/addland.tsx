@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import i18n from "../../utils/i18n";
 import React, { useEffect, useState } from "react";
 import {
   View,
@@ -29,20 +31,11 @@ const MAX_PHOTOS = 10;
 
 type PropertyType = "house" | "apartment" | "villa";
 
-const PROPERTY_TYPES: { key: PropertyType; label: string }[] = [
-  { key: "house", label: "Rumah" },
-  { key: "apartment", label: "Apartemen" },
-  { key: "villa", label: "Villa" },
-];
+const PROPERTY_TYPES: PropertyType[] = ["house", "apartment", "villa"];
 
-const propertyTypeLabel = (key: PropertyType) =>
-  PROPERTY_TYPES.find((t) => t.key === key)?.label ?? key;
+const propertyTypeLabel = (key: PropertyType) => i18n.t(`property.type.${key}`);
 
-const FURNISHED_OPTIONS = [
-  { key: "furnished", label: "Full Furnished" },
-  { key: "semi", label: "Semi Furnished" },
-  { key: "unfurnished", label: "Unfurnished" },
-];
+const FURNISHED_KEYS = ["furnished", "semi", "unfurnished"];
 
 type PickedImage = { uri: string; name: string; type: string };
 
@@ -120,6 +113,7 @@ function DropdownPicker({
 }
 
 export default function AddProperty() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { theme } = useTheme();
   const { refreshLands } = useLands();
@@ -193,12 +187,12 @@ export default function AddProperty() {
   const pickImages = async () => {
     const remaining = MAX_PHOTOS - form.images.length;
     if (remaining <= 0) {
-      Alert.alert("Batas Foto", `Maksimal ${MAX_PHOTOS} foto per properti.`);
+      Alert.alert(t("addProperty.photoLimitTitle"), t("addProperty.photoLimit", { max: MAX_PHOTOS }));
       return;
     }
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Izin Diperlukan", "Mohon izinkan akses galeri untuk mengunggah foto.");
+      Alert.alert(t("addProperty.permissionTitle"), t("addProperty.galleryPermissionPhoto"));
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -229,7 +223,7 @@ export default function AddProperty() {
   const pickCertificateImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Izin Diperlukan", "Mohon izinkan akses galeri untuk mengunggah sertifikat.");
+      Alert.alert(t("addProperty.permissionTitle"), t("addProperty.galleryPermissionCert"));
       return;
     }
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -248,7 +242,7 @@ export default function AddProperty() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Izin Ditolak", "Izin lokasi ditolak. Anda dapat memposisikan pin secara manual.");
+        Alert.alert(t("addProperty.permissionDenied"), t("addProperty.locationDenied"));
         return;
       }
 
@@ -256,7 +250,7 @@ export default function AddProperty() {
       const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
       
       const geo = await Location.reverseGeocodeAsync(coords);
-      let addressStr = "Lokasi terdeteksi";
+      let addressStr = t("addProperty.locationDetected");
       if (geo[0]) {
         const { street, district, city, region } = geo[0];
         addressStr = `${street || ""} ${district || ""}, ${city || ""}, ${region || ""}`.trim().replace(/^,|,$/g, "");
@@ -266,7 +260,7 @@ export default function AddProperty() {
         ...p,
         latitude: coords.latitude,
         longitude: coords.longitude,
-        address: addressStr || "Yogyakarta, Indonesia",
+        address: addressStr || t("addProperty.locationDetected"),
       }));
     } catch (e) {
       console.warn("Gagal mendapatkan lokasi:", e);
@@ -285,7 +279,7 @@ export default function AddProperty() {
       if (geo[0]) {
         const { street, district, city, region } = geo[0];
         const formatted = `${street || ""} ${district || ""}, ${city || ""}, ${region || ""}`.trim().replace(/^,|,$/g, "");
-        setForm((p) => ({ ...p, address: formatted || "Lokasi terpilih" }));
+        setForm((p) => ({ ...p, address: formatted || t("addProperty.locationSelected") }));
       }
     } catch (err) {
       console.warn(err);
@@ -295,13 +289,13 @@ export default function AddProperty() {
   /* ================= SUBMIT / PUBLISH ================= */
   const handlePublish = async () => {
     if (isSubmitting) return;
-    if (form.images.length === 0) return Alert.alert("Peringatan", "Harap unggah minimal 1 foto properti!");
-    if (!form.title.trim()) return Alert.alert("Peringatan", "Harap masukkan judul properti!");
-    if (!form.price.trim()) return Alert.alert("Peringatan", "Harap masukkan harga!");
-    if (!form.address.trim()) return Alert.alert("Peringatan", "Harap masukkan alamat lokasi!");
+    if (form.images.length === 0) return Alert.alert(t("common.warning"), t("addProperty.needPhoto"));
+    if (!form.title.trim()) return Alert.alert(t("common.warning"), t("addProperty.needTitle"));
+    if (!form.price.trim()) return Alert.alert(t("common.warning"), t("addProperty.needPrice"));
+    if (!form.address.trim()) return Alert.alert(t("common.warning"), t("addProperty.needAddress"));
 
     const cleanPrice = parseFloat(form.price.replace(/[^\d]/g, ""));
-    if (isNaN(cleanPrice)) return Alert.alert("Peringatan", "Harap masukkan harga yang valid!");
+    if (isNaN(cleanPrice)) return Alert.alert(t("common.warning"), t("addProperty.invalidPrice"));
 
     const body = new FormData();
     const append = (key: string, value?: string | number | null) => {
@@ -313,7 +307,7 @@ export default function AddProperty() {
     append("price", cleanPrice);
     append("isForSale", form.listingType === "Dijual" ? "1" : "0");
     append("type", form.propertyType);
-    append("description", form.description.trim() || "Tidak ada deskripsi properti.");
+    append("description", form.description.trim() || t("addProperty.noDescription"));
     append("latitude", form.latitude);
     append("longitude", form.longitude);
     append("buildingArea", form.buildingArea);
@@ -345,15 +339,15 @@ export default function AddProperty() {
       });
       await refreshLands();
 
-      Alert.alert("Sukses", "Properti Anda berhasil diajukan dan sedang menunggu persetujuan administrator!", [
-        { text: "OK", onPress: () => router.replace("/(tabsOwner)/homeOwner") },
+      Alert.alert(t("common.success"), t("addProperty.submitted"), [
+        { text: t("common.ok"), onPress: () => router.replace("/(tabsOwner)/homeOwner") },
       ]);
     } catch (error: any) {
       const errors = error.response?.data?.errors;
       const msg = errors
         ? (Object.values(errors).flat() as string[]).join("\n")
-        : error.response?.data?.message || error.message || "Gagal mengunggah properti.";
-      Alert.alert("Gagal", msg);
+        : error.response?.data?.message || error.message || t("addProperty.submitFailed");
+      Alert.alert(t("common.failed"), msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -369,7 +363,7 @@ export default function AddProperty() {
               <Text style={styles.stepNumberText}>{s}</Text>
             </View>
             <Text style={[styles.stepLabel, { color: step === s ? theme.text : theme.textSecondary }]}>
-              {s === 1 ? "Informasi" : "Lokasi"}
+              {s === 1 ? t("addProperty.stepInfo") : t("addProperty.stepLocation")}
             </Text>
           </View>
           {s < 2 && <View style={[styles.stepConnector, { backgroundColor: step > s ? theme.primary : theme.border }]} />}
@@ -388,7 +382,7 @@ export default function AddProperty() {
         >
           <Ionicons name="chevron-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Tambah Properti</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>{t("addProperty.title")}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -410,7 +404,7 @@ export default function AddProperty() {
               >
                 <View style={styles.uploadPlaceholder}>
                   <Ionicons name="images-outline" size={36} color={theme.textSecondary} />
-                  <Text style={[styles.uploadText, { color: theme.textSecondary }]}>Unggah Foto Hunian</Text>
+                  <Text style={[styles.uploadText, { color: theme.textSecondary }]}>{t("addProperty.uploadPhotos")}</Text>
                   <Text style={{ fontSize: 11, color: theme.textSecondary }}>Pilih hingga {MAX_PHOTOS} foto sekaligus</Text>
                 </View>
               </TouchableOpacity>
@@ -427,7 +421,7 @@ export default function AddProperty() {
                       <Image source={{ uri: img.uri }} style={styles.uploadedImage} />
                       {index === 0 && (
                         <View style={[styles.coverBadge, { backgroundColor: theme.primary }]}>
-                          <Text style={styles.coverBadgeText}>Sampul</Text>
+                          <Text style={styles.coverBadgeText}>{t("addProperty.cover")}</Text>
                         </View>
                       )}
                       <TouchableOpacity
@@ -446,18 +440,18 @@ export default function AddProperty() {
                       activeOpacity={0.8}
                     >
                       <Ionicons name="add" size={28} color={theme.textSecondary} />
-                      <Text style={{ fontSize: 11, color: theme.textSecondary }}>Tambah</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary }}>{t("addProperty.add")}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
                 <Text style={{ fontSize: 11, color: theme.textSecondary, marginBottom: 8 }}>
-                  Ketuk foto untuk menjadikannya sampul.
+                  {t("addProperty.tapToCover")}
                 </Text>
               </>
             )}
 
             {/* Dokumen Sertifikat SHM Upload */}
-            <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 12 }]}>Berkas Sertifikat SHM / Legalitas</Text>
+            <Text style={[styles.fieldLabel, { color: theme.text, marginTop: 12 }]}>{t("addProperty.certificateFile")}</Text>
             <TouchableOpacity
               style={[styles.imageBox, { backgroundColor: theme.surface, borderColor: theme.border, height: 100 }]}
               onPress={pickCertificateImage}
@@ -468,8 +462,8 @@ export default function AddProperty() {
               ) : (
                 <View style={styles.uploadPlaceholder}>
                   <Ionicons name="document-text-outline" size={28} color={theme.primary} />
-                  <Text style={[styles.uploadText, { color: theme.primary, fontWeight: "700" }]}>Unggah Scan Sertifikat (SHM)</Text>
-                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>Hanya dapat dilihat oleh Administrator</Text>
+                  <Text style={[styles.uploadText, { color: theme.primary, fontWeight: "700" }]}>{t("addProperty.uploadCertificate")}</Text>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>{t("addProperty.adminOnly")}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -477,17 +471,19 @@ export default function AddProperty() {
             {/* Listing Type & Property Type */}
             <View style={styles.row}>
               <View style={styles.flexHalf}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>Tipe Transaksi</Text>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("maps.transactionType")}</Text>
                 <View style={[styles.segmentRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  {["Dijual", "Disewa"].map((t) => {
-                    const active = form.listingType === t;
+                  {["Dijual", "Disewa"].map((lt) => {
+                    const active = form.listingType === lt;
                     return (
                       <TouchableOpacity
-                        key={t}
+                        key={lt}
                         style={[styles.segmentBtn, active && { backgroundColor: theme.primary }]}
-                        onPress={() => setForm({ ...form, listingType: t })}
+                        onPress={() => setForm({ ...form, listingType: lt })}
                       >
-                        <Text style={[styles.segmentText, { color: active ? "#FFF" : theme.textSecondary }]}>{t}</Text>
+                        <Text style={[styles.segmentText, { color: active ? "#FFF" : theme.textSecondary }]}>
+                          {lt === "Dijual" ? t("property.forSale") : t("property.forRent")}
+                        </Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -495,7 +491,7 @@ export default function AddProperty() {
               </View>
 
               <View style={styles.flexHalf}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>Tipe Hunian</Text>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("addProperty.propertyType")}</Text>
                 <TouchableOpacity
                   style={[styles.selectTrigger, styles.typeTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
                   onPress={() => setTypePickerVisible(true)}
@@ -511,18 +507,18 @@ export default function AddProperty() {
             <DropdownPicker
               visible={typePickerVisible}
               onClose={() => setTypePickerVisible(false)}
-              title="Pilih Tipe Hunian"
-              options={PROPERTY_TYPES}
+              title={t("addProperty.choosePropertyType")}
+              options={PROPERTY_TYPES.map((key) => ({ key, label: t(`property.type.${key}`) }))}
               selectedValue={form.propertyType}
               onSelect={(val) => setForm((p) => ({ ...p, propertyType: val as PropertyType }))}
               theme={theme}
             />
 
             {/* Judul Properti */}
-            <Text style={[styles.fieldLabel, { color: theme.text }]}>Judul Iklan</Text>
+            <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("addProperty.listingTitle")}</Text>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-              placeholder="Contoh: Rumah Minimalis Modern Dekat UGM"
+              placeholder={t("addProperty.listingTitlePlaceholder")}
               placeholderTextColor={theme.textLight}
               value={form.title}
               onChangeText={(text) => setForm({ ...form, title: text })}
@@ -530,11 +526,11 @@ export default function AddProperty() {
 
             {/* Harga */}
             <Text style={[styles.fieldLabel, { color: theme.text }]}>
-              Harga {form.listingType === "Disewa" ? "(per Bulan)" : "(Rp)"}
+              {t("addProperty.price")} {form.listingType === "Disewa" ? t("addProperty.perMonthParen") : "(Rp)"}
             </Text>
             <TextInput
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-              placeholder={form.listingType === "Disewa" ? "Contoh: 3500000" : "Contoh: 1200000000"}
+              placeholder={t("addProperty.example", { value: form.listingType === "Disewa" ? "3500000" : "1200000000" })}
               placeholderTextColor={theme.textLight}
               keyboardType="numeric"
               value={form.price}
@@ -542,10 +538,10 @@ export default function AddProperty() {
             />
 
             {/* Deskripsi */}
-            <Text style={[styles.fieldLabel, { color: theme.text }]}>Deskripsi Hunian</Text>
+            <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("addProperty.description")}</Text>
             <TextInput
               style={[styles.input, styles.textArea, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
-              placeholder="Tuliskan spesifikasi lengkap, kelebihan hunian, dsb..."
+              placeholder={t("addProperty.descriptionPlaceholder")}
               placeholderTextColor={theme.textLight}
               multiline
               numberOfLines={4}
@@ -555,43 +551,43 @@ export default function AddProperty() {
 
             {/* ================= INFORMASI PROPERTI (kolom tabel lands) ================= */}
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              Informasi Properti ({propertyTypeLabel(form.propertyType)})
+              {t("productDetail.propertyInfo")} ({propertyTypeLabel(form.propertyType)})
             </Text>
 
             <View style={styles.row}>
               {!isApartment && (
                 <View style={styles.flexHalf}>
-                  {renderField("Luas Tanah (m²)", "landArea", "Contoh: 120", "number-pad")}
+                  {renderField(t("addProperty.landArea"), "landArea", t("addProperty.example", { value: "120" }), "number-pad")}
                 </View>
               )}
               <View style={styles.flexHalf}>
-                {renderField(isApartment ? "Luas Unit (m²)" : "Luas Bangunan (m²)", "buildingArea", "Contoh: 90", "number-pad")}
+                {renderField(isApartment ? t("addProperty.unitArea") : t("addProperty.buildingArea"), "buildingArea", t("addProperty.example", { value: "90" }), "number-pad")}
               </View>
             </View>
 
             <View style={styles.row}>
               <View style={styles.flexHalf}>
-                {renderField("Kamar Tidur", "bedrooms", "Jumlah KT", "number-pad")}
+                {renderField(t("productDetail.bedrooms"), "bedrooms", t("addProperty.bedroomsPlaceholder"), "number-pad")}
               </View>
               <View style={styles.flexHalf}>
-                {renderField("Kamar Mandi", "bathrooms", "Jumlah KM", "number-pad")}
+                {renderField(t("productDetail.bathrooms"), "bathrooms", t("addProperty.bathroomsPlaceholder"), "number-pad")}
               </View>
             </View>
 
             <View style={styles.row}>
               <View style={styles.flexHalf}>
                 {isApartment
-                  ? renderField("Lantai Ke-", "unitFloor", "Contoh: 12", "number-pad")
-                  : renderField("Jumlah Lantai", "floors", "Contoh: 2", "number-pad")}
+                  ? renderField(t("addProperty.unitFloor"), "unitFloor", t("addProperty.example", { value: "12" }), "number-pad")
+                  : renderField(t("addProperty.floors"), "floors", t("addProperty.example", { value: "2" }), "number-pad")}
               </View>
               <View style={styles.flexHalf}>
-                {renderField("Daya Listrik (VA)", "electricity", "Contoh: 2200", "number-pad")}
+                {renderField(t("addProperty.electricity"), "electricity", t("addProperty.example", { value: "2200" }), "number-pad")}
               </View>
             </View>
 
             <View style={styles.row}>
               <View style={styles.flexHalf}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>Sertifikat</Text>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("productDetail.certificate")}</Text>
                 <TouchableOpacity
                   style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
                   onPress={() => setCertPickerVisible(true)}
@@ -601,13 +597,13 @@ export default function AddProperty() {
                 </TouchableOpacity>
               </View>
               <View style={styles.flexHalf}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>Furnished</Text>
+                <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("addProperty.furnished")}</Text>
                 <TouchableOpacity
                   style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
                   onPress={() => setFurnishedPickerVisible(true)}
                 >
                   <Text style={{ color: theme.text, fontSize: 14 }}>
-                    {FURNISHED_OPTIONS.find((o) => o.key === form.furnished)?.label}
+                    {t(`property.furnishedOption.${form.furnished}`)}
                   </Text>
                   <Ionicons name="chevron-down" size={18} color={theme.textSecondary} />
                 </TouchableOpacity>
@@ -617,7 +613,7 @@ export default function AddProperty() {
             <View style={styles.row}>
               {isApartment && (
                 <View style={styles.flexHalf}>
-                  <Text style={[styles.fieldLabel, { color: theme.text }]}>Tipe Unit</Text>
+                  <Text style={[styles.fieldLabel, { color: theme.text }]}>{t("addProperty.unitType")}</Text>
                   <TouchableOpacity
                     style={[styles.selectTrigger, { borderColor: theme.border, backgroundColor: theme.card }]}
                     onPress={() => setUnitTypePickerVisible(true)}
@@ -628,18 +624,18 @@ export default function AddProperty() {
                 </View>
               )}
               <View style={styles.flexHalf}>
-                {renderField(isApartment ? "Parkir" : "Garasi / Carport", "garage", "Contoh: Carport 2 Mobil")}
+                {renderField(isApartment ? t("addProperty.parking") : t("addProperty.garage"), "garage", t("addProperty.garagePlaceholder"))}
               </View>
             </View>
 
             <DropdownPicker
               visible={certPickerVisible}
               onClose={() => setCertPickerVisible(false)}
-              title="Pilih Sertifikat"
+              title={t("addProperty.chooseCertificate")}
               options={[
-                { key: "SHM", label: "SHM - Hak Milik" },
-                { key: "HGB", label: "HGB - Hak Guna Bangunan" },
-                { key: "Lainnya", label: "Sertifikat Lainnya" },
+                { key: "SHM", label: t("addProperty.certSHM") },
+                { key: "HGB", label: t("addProperty.certHGB") },
+                { key: "Lainnya", label: t("addProperty.certOther") },
               ]}
               selectedValue={form.certificate}
               onSelect={(val) => setForm((p) => ({ ...p, certificate: val }))}
@@ -649,12 +645,12 @@ export default function AddProperty() {
             <DropdownPicker
               visible={unitTypePickerVisible}
               onClose={() => setUnitTypePickerVisible(false)}
-              title="Pilih Tipe Unit"
+              title={t("addProperty.chooseUnitType")}
               options={[
                 { key: "Studio", label: "Studio" },
-                { key: "1BR", label: "1BR (1 Kamar)" },
-                { key: "2BR", label: "2BR (2 Kamar)" },
-                { key: "3BR+", label: "3BR+ (3 Kamar atau Lebih)" },
+                { key: "1BR", label: t("addProperty.unit1BR") },
+                { key: "2BR", label: t("addProperty.unit2BR") },
+                { key: "3BR+", label: t("addProperty.unit3BR") },
               ]}
               selectedValue={form.unitType}
               onSelect={(val) => setForm((p) => ({ ...p, unitType: val }))}
@@ -664,8 +660,8 @@ export default function AddProperty() {
             <DropdownPicker
               visible={furnishedPickerVisible}
               onClose={() => setFurnishedPickerVisible(false)}
-              title="Pilih Kondisi Furnish"
-              options={FURNISHED_OPTIONS}
+              title={t("addProperty.chooseFurnished")}
+              options={FURNISHED_KEYS.map((key) => ({ key, label: t(`property.furnishedOption.${key}`) }))}
               selectedValue={form.furnished}
               onSelect={(val) => setForm((p) => ({ ...p, furnished: val }))}
               theme={theme}
@@ -673,7 +669,7 @@ export default function AddProperty() {
 
             {/* Next Button */}
             <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.primary }]} onPress={() => setStep(2)}>
-              <Text style={styles.actionBtnText}>Lanjut ke Lokasi</Text>
+              <Text style={styles.actionBtnText}>{t("addProperty.nextToLocation")}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -681,8 +677,8 @@ export default function AddProperty() {
         {/* ================= STEP 2: LOKASI & PUBLISH ================= */}
         {step === 2 && (
           <View style={styles.formContainer}>
-            <Text style={[styles.stepTitle, { color: theme.text }]}>Tentukan Lokasi Hunian</Text>
-            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>Geser marker di peta ke lokasi properti yang sesuai</Text>
+            <Text style={[styles.stepTitle, { color: theme.text }]}>{t("addProperty.locationTitle")}</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>{t("addProperty.locationSub")}</Text>
 
             {/* Map */}
             <View style={[styles.mapWrapper, { borderColor: theme.border }]}>
@@ -714,7 +710,7 @@ export default function AddProperty() {
                   styles.addressInput,
                   { color: theme.text, borderColor: theme.border, backgroundColor: theme.card },
                 ]}
-                placeholder="Alamat lengkap hunian..."
+                placeholder={t("addProperty.addressPlaceholder")}
                 placeholderTextColor={theme.textLight}
                 value={form.address}
                 onChangeText={(text) => setForm({ ...form, address: text })}
@@ -734,7 +730,7 @@ export default function AddProperty() {
                 style={[styles.actionBtn, styles.cancelBtn, { borderColor: theme.border }]}
                 onPress={() => setStep(1)}
               >
-                <Text style={[styles.cancelBtnText, { color: theme.text }]}>Kembali</Text>
+                <Text style={[styles.cancelBtnText, { color: theme.text }]}>{t("common.back")}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -745,7 +741,7 @@ export default function AddProperty() {
                 {isSubmitting ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={styles.actionBtnText}>Publish Hunian</Text>
+                  <Text style={styles.actionBtnText}>{t("addProperty.publish")}</Text>
                 )}
               </TouchableOpacity>
             </View>

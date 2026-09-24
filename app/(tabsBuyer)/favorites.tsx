@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import {
   View,
@@ -7,6 +8,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +19,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 const { width } = Dimensions.get("window");
 
 export default function FavoritesScreen() {
+  const { t } = useTranslation();
   const { favorites, toggleFavorite } = useBookmark();
   const router = useRouter();
   const { theme, isDark } = useTheme();
@@ -25,11 +28,11 @@ export default function FavoritesScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* HEADER */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <Text style={[styles.title, { color: theme.text }]}>Favorit Saya</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{t("favorites.myFavorites")}</Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           {favorites.length > 0
-            ? `${favorites.length} properti disimpan`
-            : "Tidak ada properti favorit"}
+            ? t("favorites.savedCount", { count: favorites.length })
+            : t("favorites.none")}
         </Text>
       </View>
 
@@ -37,9 +40,9 @@ export default function FavoritesScreen() {
       {favorites.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="heart-dislike-outline" size={70} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.text }]}>Belum ada properti yang kamu simpan</Text>
+          <Text style={[styles.emptyText, { color: theme.text }]}>{t("favorites.emptyTitle")}</Text>
           <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-            Simpan lahan atau rumah favoritmu untuk dilihat nanti 🌿
+            {t("favorites.emptyText")}
           </Text>
         </View>
       ) : (
@@ -91,10 +94,10 @@ export default function FavoritesScreen() {
                   backgroundColor: isDark ? "#3A1E1E" : "#FEE2E2", 
                   borderLeftColor: isDark ? "#5C2E2E" : "#FCA5A5" 
                 }]}
-                onPress={() => toggleFavorite(item)}
+                onPress={() => toggleFavorite(item).catch(() => Alert.alert(t("common.failed"), t("favorites.removeFailed")))}
               >
                 <Ionicons name="heart-dislike" size={22} color="#EF4444" />
-                <Text style={styles.unfavText}>Unfavorite</Text>
+                <Text style={styles.unfavText}>{t("favorites.remove")}</Text>
               </TouchableOpacity>
             </TouchableOpacity>
           ))}

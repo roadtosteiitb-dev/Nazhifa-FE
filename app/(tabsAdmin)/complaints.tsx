@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
@@ -25,9 +26,9 @@ const TEXT_DARK = "#0F172A";
 const TEXT_SECONDARY = "#64748B";
 
 const statusColors: Record<ComplaintStatus, { bg: string; text: string; label: string }> = {
-  open: { bg: "#FEF3C7", text: "#D97706", label: "Open" },
-  in_progress: { bg: "#DBEAFE", text: PRIMARY, label: "In Progress" },
-  resolved: { bg: "#DCFCE7", text: SUCCESS, label: "Resolved" },
+  open: { bg: "#FEF3C7", text: "#D97706", label: "complaint.statuses.open" },
+  in_progress: { bg: "#DBEAFE", text: PRIMARY, label: "complaint.statuses.in_progress" },
+  resolved: { bg: "#DCFCE7", text: SUCCESS, label: "complaint.statuses.resolved" },
 };
 
 const categoryIcons: Record<string, string> = {
@@ -40,6 +41,7 @@ const categoryIcons: Record<string, string> = {
 type FilterType = "all" | ComplaintStatus;
 
 export default function ComplaintsScreen() {
+  const { t } = useTranslation();
   const [complaints, setComplaints] = useState<ApiComplaint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -72,17 +74,17 @@ export default function ComplaintsScreen() {
   });
 
   const changeStatus = (id: string, newStatus: ComplaintStatus) => {
-    Alert.alert("Update Status", `Change status to "${statusColors[newStatus].label}"?`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("admin.complaints.updateStatus"), t("admin.complaints.changeTo", { status: t(statusColors[newStatus].label) }), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Confirm",
+        text: t("common.confirm"),
         onPress: async () => {
           try {
             const updated = await updateComplaintStatus(id, newStatus);
             setComplaints((prev) => prev.map((c) => (c.id === id ? updated : c)));
             setSelected(null);
           } catch {
-            Alert.alert("Gagal", "Tidak dapat mengubah status komplain.");
+            Alert.alert(t("common.failed"), t("admin.complaints.statusFailed"));
           }
         },
       },
@@ -90,10 +92,10 @@ export default function ComplaintsScreen() {
   };
 
   const filters: { label: string; value: FilterType }[] = [
-    { label: "All", value: "all" },
-    { label: "Open", value: "open" },
-    { label: "In Progress", value: "in_progress" },
-    { label: "Resolved", value: "resolved" },
+    { label: t("common.all"), value: "all" },
+    { label: t("complaint.statuses.open"), value: "open" },
+    { label: t("complaint.statuses.in_progress"), value: "in_progress" },
+    { label: t("complaint.statuses.resolved"), value: "resolved" },
   ];
 
   // ── Detail View ──
@@ -106,37 +108,37 @@ export default function ComplaintsScreen() {
           <TouchableOpacity onPress={() => setSelected(null)} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
           </TouchableOpacity>
-          <Text style={styles.detailHeaderTitle}>Complaint Details</Text>
+          <Text style={styles.detailHeaderTitle}>{t("admin.complaints.details")}</Text>
           <View style={{ width: 42 }} />
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
           <View style={styles.detailStatusRow}>
             <View style={[styles.detailStatusBadge, { backgroundColor: info.bg }]}>
-              <Text style={[styles.detailStatusText, { color: info.text }]}>{info.label}</Text>
+              <Text style={[styles.detailStatusText, { color: info.text }]}>{t(info.label)}</Text>
             </View>
             <View style={styles.detailCategoryBadge}>
               <Ionicons name={(categoryIcons[c.category] || "help-circle") as any} size={14} color={DANGER} />
-              <Text style={styles.detailCategoryText}>{c.category}</Text>
+              <Text style={styles.detailCategoryText}>{t(`complaint.categories.${c.category.replace(/\s/g, "")}`, { defaultValue: c.category })}</Text>
             </View>
           </View>
 
-          <Text style={styles.detailDate}>Submitted: {c.date || "-"}</Text>
+          <Text style={styles.detailDate}>{t("admin.complaints.submitted", { date: c.date || "-" })}</Text>
 
-          <Text style={styles.sectionLabel}>Reporter</Text>
+          <Text style={styles.sectionLabel}>{t("admin.complaints.reporter")}</Text>
           <View style={styles.reporterCard}>
             <View style={styles.reporterAvatar}>
               <Ionicons name="person" size={22} color="#fff" />
             </View>
             <View>
-              <Text style={styles.reporterName}>{c.reporter || "Unknown"}</Text>
-              <Text style={styles.reporterSub}>Reported a complaint</Text>
+              <Text style={styles.reporterName}>{c.reporter || t("admin.complaints.unknown")}</Text>
+              <Text style={styles.reporterSub}>{t("admin.complaints.reported")}</Text>
             </View>
           </View>
 
           {c.property && (
             <>
-              <Text style={styles.sectionLabel}>Related Property</Text>
+              <Text style={styles.sectionLabel}>{t("admin.complaints.relatedProperty")}</Text>
               <View style={styles.propertyRef}>
                 <Ionicons name="business-outline" size={18} color={PRIMARY} />
                 <Text style={styles.propertyRefText}>{c.property}</Text>
@@ -144,14 +146,14 @@ export default function ComplaintsScreen() {
             </>
           )}
 
-          <Text style={styles.sectionLabel}>Complaint Message</Text>
+          <Text style={styles.sectionLabel}>{t("admin.complaints.message")}</Text>
           <View style={styles.messageCard}>
             <Text style={styles.messageText}>{c.message}</Text>
           </View>
 
           {c.status !== "resolved" && (
             <>
-              <Text style={styles.sectionLabel}>Change Status</Text>
+              <Text style={styles.sectionLabel}>{t("admin.complaints.changeStatus")}</Text>
               <View style={styles.statusActions}>
                 {c.status === "open" && (
                   <TouchableOpacity
@@ -159,7 +161,7 @@ export default function ComplaintsScreen() {
                     onPress={() => changeStatus(c.id, "in_progress")}
                   >
                     <Ionicons name="time-outline" size={16} color={PRIMARY} />
-                    <Text style={[styles.statusActionText, { color: PRIMARY }]}>Mark In Progress</Text>
+                    <Text style={[styles.statusActionText, { color: PRIMARY }]}>{t("admin.complaints.markInProgress")}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -167,7 +169,7 @@ export default function ComplaintsScreen() {
                   onPress={() => changeStatus(c.id, "resolved")}
                 >
                   <Ionicons name="checkmark-done" size={16} color={SUCCESS} />
-                  <Text style={[styles.statusActionText, { color: SUCCESS }]}>Mark as Resolved</Text>
+                  <Text style={[styles.statusActionText, { color: SUCCESS }]}>{t("admin.complaints.markResolved")}</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -181,16 +183,16 @@ export default function ComplaintsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Complaint Management</Text>
+        <Text style={styles.pageTitle}>{t("admin.complaints.title")}</Text>
         <Text style={styles.pageSubtitle}>
-          {complaints.filter((c) => c.status === "open").length} open complaints
+          {t("admin.complaints.openCount", { count: complaints.filter((c) => c.status === "open").length })}
         </Text>
       </View>
 
       <View style={styles.searchBar}>
         <Ionicons name="search-outline" size={20} color={TEXT_SECONDARY} style={{ marginLeft: 14 }} />
         <TextInput
-          placeholder="Search by reporter, property, or category..."
+          placeholder={t("admin.complaints.search")}
           value={search}
           onChangeText={setSearch}
           style={styles.searchInput}
@@ -219,7 +221,7 @@ export default function ComplaintsScreen() {
         {!isLoading && filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="shield-checkmark" size={48} color="#CBD5E1" />
-            <Text style={styles.emptyText}>No complaints found.</Text>
+            <Text style={styles.emptyText}>{t("admin.complaints.empty")}</Text>
           </View>
         ) : (
           filtered.map((c) => {
@@ -233,7 +235,7 @@ export default function ComplaintsScreen() {
               >
                 <View style={styles.complaintCardHeader}>
                   <View style={[styles.complaintBadge, { backgroundColor: info.bg }]}>
-                    <Text style={[styles.complaintBadgeText, { color: info.text }]}>{info.label}</Text>
+                    <Text style={[styles.complaintBadgeText, { color: info.text }]}>{t(info.label)}</Text>
                   </View>
                   <Text style={styles.complaintDate}>{c.date || "-"}</Text>
                 </View>
@@ -245,19 +247,19 @@ export default function ComplaintsScreen() {
                       size={16}
                       color={DANGER}
                     />
-                    <Text style={styles.complaintCategory}>{c.category}</Text>
+                    <Text style={styles.complaintCategory}>{t(`complaint.categories.${c.category.replace(/\s/g, "")}`, { defaultValue: c.category })}</Text>
                   </View>
 
                   <Text style={styles.complaintReporter}>
-                    <Text style={{ fontWeight: "700", color: TEXT_DARK }}>{c.reporter || "Unknown"}</Text>
+                    <Text style={{ fontWeight: "700", color: TEXT_DARK }}>{c.reporter || t("admin.complaints.unknown")}</Text>
                     {" "}reported
                   </Text>
-                  {c.property && <Text style={styles.complaintProperty}>Property: {c.property}</Text>}
+                  {c.property && <Text style={styles.complaintProperty}>{t("admin.complaints.property", { name: c.property })}</Text>}
                   <Text style={styles.complaintPreview} numberOfLines={2}>{c.message}</Text>
                 </View>
 
                 <View style={styles.complaintCardFooter}>
-                  <Text style={styles.viewDetailsHint}>Tap to view details</Text>
+                  <Text style={styles.viewDetailsHint}>{t("admin.complaints.tapForDetails")}</Text>
                   <Ionicons name="chevron-forward" size={18} color={TEXT_SECONDARY} />
                 </View>
               </TouchableOpacity>

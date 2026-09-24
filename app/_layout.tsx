@@ -6,6 +6,7 @@ import { ThemeProvider } from "../contexts/ThemeContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 import { CartProvider } from "../contexts/CartContext";
 import { LandProvider } from "../contexts/LandContext";
+import { BookmarkProvider } from "../contexts/BookmarkContext";
 import { StatsProvider } from "../contexts/StatsContext";
 import { ActivityProvider } from "../contexts/ActivityContext";
 import { ChatProvider } from "../contexts/ChatContext";
@@ -78,6 +79,7 @@ export default function RootLayout() {
     <ThemeProvider>
       <AuthProvider>
         <LandProvider>
+          <BookmarkProvider>
           <CartProvider>
               <StatsProvider>
                 <ActivityProvider>
@@ -96,6 +98,7 @@ export default function RootLayout() {
               </StatsProvider>
 
           </CartProvider>
+          </BookmarkProvider>
         </LandProvider>
       </AuthProvider>
     </ThemeProvider>

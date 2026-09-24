@@ -1,7 +1,21 @@
-/** Date / name helpers shared by the chat list and chat room (Bahasa Indonesia). */
+/** Date / name helpers shared by the chat list and chat room — follow the app language. */
+import i18n from "./i18n";
 
-const DAYS = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+const NAMES = {
+  id: {
+    days: ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"],
+    months: ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"],
+    today: "Hari ini",
+    yesterday: "Kemarin",
+  },
+  en: {
+    days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    months: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    today: "Today",
+    yesterday: "Yesterday",
+  },
+};
+const L = () => (i18n.language?.startsWith("en") ? NAMES.en : NAMES.id);
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 const daysAgo = (d: Date) => Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000);
@@ -19,26 +33,26 @@ export function formatClock(iso?: string | null): string {
   return d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : "";
 }
 
-/** Chat list: "14:05" today · "Kemarin" · weekday within a week · "12 Sep" · "12 Sep 2025" */
+/** Chat list: "14:05" today · yesterday · weekday within a week · "12 Sep" · "12 Sep 2025" */
 export function formatListTime(iso?: string | null): string {
   const d = parse(iso);
   if (!d) return "";
   const ago = daysAgo(d);
   if (ago <= 0) return formatClock(iso);
-  if (ago === 1) return "Kemarin";
-  if (ago < 7) return DAYS[d.getDay()];
+  if (ago === 1) return L().yesterday;
+  if (ago < 7) return L().days[d.getDay()];
   const sameYear = d.getFullYear() === new Date().getFullYear();
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}${sameYear ? "" : ` ${d.getFullYear()}`}`;
+  return `${d.getDate()} ${L().months[d.getMonth()]}${sameYear ? "" : ` ${d.getFullYear()}`}`;
 }
 
-/** Day separator in the chat room: "Hari ini" · "Kemarin" · "Senin, 22 Sep 2026" */
+/** Day separator in the chat room: today · yesterday · "Monday, 22 Sep 2026" */
 export function formatDayLabel(iso?: string | null): string {
   const d = parse(iso);
   if (!d) return "";
   const ago = daysAgo(d);
-  if (ago <= 0) return "Hari ini";
-  if (ago === 1) return "Kemarin";
-  return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  if (ago <= 0) return L().today;
+  if (ago === 1) return L().yesterday;
+  return `${L().days[d.getDay()]}, ${d.getDate()} ${L().months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 export function dayKey(iso?: string | null): string {

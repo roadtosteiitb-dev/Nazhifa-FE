@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState, useMemo } from "react";
 import {
   View,
@@ -23,6 +24,7 @@ const TEXT_SECONDARY = "#64748B";
 type FilterType = "all" | "pending" | "accepted" | "declined";
 
 export default function VerificationScreen() {
+  const { t } = useTranslation();
   const { lands = [], isLoading, updateLandStatus } = useLands() || {};
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
@@ -44,16 +46,16 @@ export default function VerificationScreen() {
   }, [lands, search, filter]);
 
   const handleAccept = (id: string) => {
-    Alert.alert("Approve Property", "Confirm approval?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("admin.verification.approveTitle"), t("homeAdmin.approveConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Approve",
+        text: t("homeAdmin.approve"),
         onPress: async () => {
           try {
             if (updateLandStatus) await updateLandStatus(id, "Approved");
             if (selectedItem?.id === id) setSelectedItem(null);
           } catch {
-            Alert.alert("Gagal", "Tidak dapat menyetujui properti.");
+            Alert.alert(t("common.failed"), t("admin.approveFailed"));
           }
         },
       },
@@ -67,29 +69,29 @@ export default function VerificationScreen() {
 
   const submitRejection = async () => {
     if (!rejectingId) return;
-    const reason = rejectionReasonInput.trim() || "Lokasi properti tidak sesuai.";
+    const reason = rejectionReasonInput.trim() || t("admin.defaultRejectReason");
     try {
       if (updateLandStatus) await updateLandStatus(rejectingId, "Rejected", reason);
       if (selectedItem?.id === rejectingId) setSelectedItem(null);
       setRejectingId(null);
       setRejectionReasonInput("");
     } catch {
-      Alert.alert("Gagal", "Tidak dapat menolak properti.");
+      Alert.alert(t("common.failed"), t("admin.rejectFailed"));
     }
   };
 
   const filters: { label: string; value: FilterType }[] = [
-    { label: "All", value: "all" },
-    { label: "Pending", value: "pending" },
-    { label: "Approved", value: "accepted" },
-    { label: "Rejected", value: "declined" },
+    { label: t("common.all"), value: "all" },
+    { label: t("homeAdmin.pending"), value: "pending" },
+    { label: t("homeAdmin.approved"), value: "accepted" },
+    { label: t("homeAdmin.rejected"), value: "declined" },
   ];
 
   const getStatusInfo = (status?: string) => {
     switch (status) {
-      case "Approved": return { bg: "#DCFCE7", text: SUCCESS, label: "Approved" };
-      case "Rejected": return { bg: "#FEE2E2", text: DANGER, label: "Rejected" };
-      default: return { bg: "#FEF3C7", text: "#D97706", label: "Pending" };
+      case "Approved": return { bg: "#DCFCE7", text: SUCCESS, label: t("homeAdmin.approved") };
+      case "Rejected": return { bg: "#FEE2E2", text: DANGER, label: t("homeAdmin.rejected") };
+      default: return { bg: "#FEF3C7", text: "#D97706", label: t("homeAdmin.pending") };
     }
   };
 
@@ -105,7 +107,7 @@ export default function VerificationScreen() {
             <TouchableOpacity onPress={() => setSelectedItem(null)} style={styles.backBtn}>
               <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
             </TouchableOpacity>
-            <Text style={styles.detailHeaderTitle}>Property Details</Text>
+            <Text style={styles.detailHeaderTitle}>{t("admin.verification.detailTitle")}</Text>
             <View style={{ width: 42 }} />
           </View>
 
@@ -129,7 +131,7 @@ export default function VerificationScreen() {
 
             {si.status === "Rejected" && si.rejectionReason && (
               <View style={styles.rejectionBox}>
-                <Text style={styles.rejectionTitle}>Alasan Penolakan:</Text>
+                <Text style={styles.rejectionTitle}>{t("homeOwner.rejectionReason")}</Text>
                 <Text style={styles.rejectionText}>{si.rejectionReason}</Text>
               </View>
             )}
@@ -137,27 +139,27 @@ export default function VerificationScreen() {
             <View style={styles.infoGrid}>
               <View style={styles.infoItem}>
                 <Ionicons name="person-outline" size={16} color={PRIMARY} />
-                <Text style={styles.infoLabel}>Owner</Text>
+                <Text style={styles.infoLabel}>{t("productDetail.owner")}</Text>
                 <Text style={styles.infoValue}>{si.owner || "-"}</Text>
               </View>
               <View style={styles.infoItem}>
                 <Ionicons name="location-outline" size={16} color={PRIMARY} />
-                <Text style={styles.infoLabel}>Location</Text>
+                <Text style={styles.infoLabel}>{t("productDetail.location")}</Text>
                 <Text style={styles.infoValue}>{si.location}</Text>
               </View>
               <View style={styles.infoItem}>
                 <Ionicons name="calendar-outline" size={16} color={PRIMARY} />
-                <Text style={styles.infoLabel}>Submitted</Text>
+                <Text style={styles.infoLabel}>{t("homeAdmin.submitted")}</Text>
                 <Text style={styles.infoValue}>{si.createdAt ? new Date(si.createdAt).toLocaleDateString("id-ID") : "-"}</Text>
               </View>
             </View>
 
-            <Text style={styles.sectionLabel}>Description</Text>
+            <Text style={styles.sectionLabel}>{t("productDetail.description")}</Text>
             <Text style={styles.descText}>{si.description || "-"}</Text>
 
             {si.facilities && si.facilities.length > 0 && (
               <>
-                <Text style={styles.sectionLabel}>Facilities</Text>
+                <Text style={styles.sectionLabel}>{t("admin.verification.facilities")}</Text>
                 <View style={styles.facilitiesRow}>
                   {si.facilities.map((f: string, i: number) => (
                     <View key={i} style={styles.facilityChip}>
@@ -171,7 +173,7 @@ export default function VerificationScreen() {
 
             {si.center && (
               <>
-                <Text style={styles.sectionLabel}>Map Location</Text>
+                <Text style={styles.sectionLabel}>{t("admin.verification.mapLocation")}</Text>
                 <View style={styles.mapPlaceholder}>
                   <Ionicons name="map" size={32} color={PRIMARY} />
                   <Text style={styles.mapCoordText}>
@@ -185,11 +187,11 @@ export default function VerificationScreen() {
               <View style={styles.detailActions}>
                 <TouchableOpacity style={styles.detailApproveBtn} onPress={() => handleAccept(si.id)}>
                   <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                  <Text style={styles.detailApproveText}>Approve Property</Text>
+                  <Text style={styles.detailApproveText}>{t("admin.verification.approveTitle")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.detailRejectBtn} onPress={() => handleDecline(si.id)}>
                   <Ionicons name="close-circle" size={18} color="#fff" />
-                  <Text style={styles.detailRejectText}>Reject Property</Text>
+                  <Text style={styles.detailRejectText}>{t("admin.verification.rejectTitle")}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -199,10 +201,10 @@ export default function VerificationScreen() {
         <Modal visible={rejectingId !== null} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Tolak Pengajuan</Text>
+              <Text style={styles.modalTitle}>{t("admin.rejectSubmission")}</Text>
               <TextInput
                 style={styles.modalInput}
-                placeholder="Alasan penolakan..."
+                placeholder={t("admin.rejectionPlaceholder")}
                 value={rejectionReasonInput}
                 onChangeText={setRejectionReasonInput}
                 multiline
@@ -210,10 +212,10 @@ export default function VerificationScreen() {
               />
               <View style={styles.modalBtnRow}>
                 <TouchableOpacity style={styles.cancelBtn} onPress={() => setRejectingId(null)}>
-                  <Text style={styles.cancelBtnText}>Batal</Text>
+                  <Text style={styles.cancelBtnText}>{t("common.cancel")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.confirmBtn} onPress={submitRejection}>
-                  <Text style={styles.confirmBtnText}>Tolak</Text>
+                  <Text style={styles.confirmBtnText}>{t("homeAdmin.reject")}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -227,14 +229,14 @@ export default function VerificationScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Property Verification</Text>
-        <Text style={styles.pageSubtitle}>Review property submissions from owners</Text>
+        <Text style={styles.pageTitle}>{t("admin.verification.title")}</Text>
+        <Text style={styles.pageSubtitle}>{t("admin.verification.subtitle")}</Text>
       </View>
 
       <View style={styles.searchBar}>
         <Ionicons name="search-outline" size={20} color={TEXT_SECONDARY} style={{ marginLeft: 14 }} />
         <TextInput
-          placeholder="Search properties or owners..."
+          placeholder={t("admin.approval.search")}
           value={search}
           onChangeText={setSearch}
           style={styles.searchInput}
@@ -258,12 +260,12 @@ export default function VerificationScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
         {isLoading ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Memuat data...</Text>
+            <Text style={styles.emptyText}>{t("common.loading")}</Text>
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="folder-open-outline" size={48} color="#CBD5E1" />
-            <Text style={styles.emptyText}>No properties found.</Text>
+            <Text style={styles.emptyText}>{t("admin.verification.empty")}</Text>
           </View>
         ) : (
           filtered.map((item) => {
@@ -286,17 +288,17 @@ export default function VerificationScreen() {
                   <View style={styles.cardActions}>
                     <TouchableOpacity style={styles.viewBtn} onPress={() => setSelectedItem(item)}>
                       <Ionicons name="eye-outline" size={14} color={PRIMARY} />
-                      <Text style={styles.viewBtnText}>View Details</Text>
+                      <Text style={styles.viewBtnText}>{t("common.viewDetail")}</Text>
                     </TouchableOpacity>
                     {item.status === "Pending" && (
                       <>
                         <TouchableOpacity style={styles.approveBtn} onPress={() => handleAccept(item.id)}>
                           <Ionicons name="checkmark" size={14} color="#fff" />
-                          <Text style={styles.smallBtnText}>Approve</Text>
+                          <Text style={styles.smallBtnText}>{t("homeAdmin.approve")}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.rejectBtn} onPress={() => handleDecline(item.id)}>
                           <Ionicons name="close" size={14} color="#fff" />
-                          <Text style={styles.smallBtnText}>Reject</Text>
+                          <Text style={styles.smallBtnText}>{t("homeAdmin.reject")}</Text>
                         </TouchableOpacity>
                       </>
                     )}
@@ -311,10 +313,10 @@ export default function VerificationScreen() {
       <Modal visible={rejectingId !== null} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Tolak Pengajuan</Text>
+            <Text style={styles.modalTitle}>{t("admin.rejectSubmission")}</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="Alasan penolakan..."
+              placeholder={t("admin.rejectionPlaceholder")}
               value={rejectionReasonInput}
               onChangeText={setRejectionReasonInput}
               multiline
@@ -322,10 +324,10 @@ export default function VerificationScreen() {
             />
             <View style={styles.modalBtnRow}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setRejectingId(null)}>
-                <Text style={styles.cancelBtnText}>Batal</Text>
+                <Text style={styles.cancelBtnText}>{t("common.cancel")}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={submitRejection}>
-                <Text style={styles.confirmBtnText}>Tolak</Text>
+                <Text style={styles.confirmBtnText}>{t("homeAdmin.reject")}</Text>
               </TouchableOpacity>
             </View>
           </View>

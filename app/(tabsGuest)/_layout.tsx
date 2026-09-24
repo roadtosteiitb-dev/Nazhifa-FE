@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +9,7 @@ import { TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function GuestLayout() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
@@ -37,7 +39,7 @@ export default function GuestLayout() {
       <Tabs.Screen
         name="homeGuest"
         options={{
-          title: "Beranda",
+          title: t("tabs.home"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
           ),
@@ -48,7 +50,7 @@ export default function GuestLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profil",
+          title: t("tabs.profile"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),

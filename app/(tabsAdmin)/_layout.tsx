@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
@@ -5,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export default function AdminLayout() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -31,7 +33,7 @@ export default function AdminLayout() {
       <Tabs.Screen
         name="homeAdmin"
         options={{
-          title: 'Home',
+          title: t("tabs.home"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="grid-outline" size={size} color={color} />
           ),
@@ -40,7 +42,7 @@ export default function AdminLayout() {
       <Tabs.Screen
         name="verification"
         options={{
-          title: 'Verification',
+          title: t("tabs.verification"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="shield-checkmark-outline" size={size} color={color} />
           ),
@@ -49,7 +51,7 @@ export default function AdminLayout() {
       <Tabs.Screen
         name="users"
         options={{
-          title: 'Users',
+          title: t("tabs.users"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" size={size} color={color} />
           ),
@@ -58,7 +60,7 @@ export default function AdminLayout() {
       <Tabs.Screen
         name="complaints"
         options={{
-          title: 'Complaints',
+          title: t("tabs.complaints"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbox-ellipses-outline" size={size} color={color} />
           ),

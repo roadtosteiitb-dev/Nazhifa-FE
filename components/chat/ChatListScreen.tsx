@@ -4,6 +4,7 @@
  *  - search across partner name, property and last message
  *  - "Belum dibaca" filter, relative timestamps, unread badges
  */
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
@@ -31,24 +32,25 @@ type Role = "buyer" | "owner";
 
 const COPY: Record<Role, { title: string; subtitle: string; search: string; emptyTitle: string; emptyText: string; partnerFallback: string }> = {
   buyer: {
-    title: "Pesan",
-    subtitle: "Tanya langsung ke pemilik properti",
-    search: "Cari pemilik, properti, atau pesan…",
-    emptyTitle: "Belum ada percakapan",
-    emptyText: "Temukan properti yang Anda suka, lalu tekan \"Contact Agent\" untuk bertanya ke pemiliknya.",
-    partnerFallback: "Pemilik Properti",
+    title: "chat.title",
+    subtitle: "chat.buyer.subtitle",
+    search: "chat.buyer.search",
+    emptyTitle: "chat.buyer.emptyTitle",
+    emptyText: "chat.buyer.emptyText",
+    partnerFallback: "chat.propertyOwner",
   },
   owner: {
-    title: "Pesan",
-    subtitle: "Pertanyaan dari calon pembeli",
-    search: "Cari pembeli, properti, atau pesan…",
-    emptyTitle: "Belum ada pesan",
-    emptyText: "Pertanyaan dari calon pembeli tentang properti Anda akan muncul di sini.",
-    partnerFallback: "Calon Pembeli",
+    title: "chat.title",
+    subtitle: "chat.owner.subtitle",
+    search: "chat.owner.search",
+    emptyTitle: "chat.owner.emptyTitle",
+    emptyText: "chat.owner.emptyText",
+    partnerFallback: "chat.prospectiveBuyer",
   },
 };
 
 export function ChatListScreen({ role }: { role: Role }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const router = useRouter();
   const { isDark } = useTheme();
@@ -56,7 +58,8 @@ export function ChatListScreen({ role }: { role: Role }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const copy = COPY[role];
+  // COPY holds translation keys — resolve them for the current language
+  const copy = Object.fromEntries(Object.entries(COPY[role]).map(([k, v]) => [k, t(v)])) as (typeof COPY)[Role];
 
   const c = {
     bg: isDark ? "#0F172A" : "#F8FAFC",
@@ -133,7 +136,7 @@ export function ChatListScreen({ role }: { role: Role }) {
 
           <View style={styles.propertyTagRow}>
             <Ionicons name="home" size={11} color={PRIMARY} />
-            <Text style={styles.propertyTitle} numberOfLines={1}>{item.propertyTitle || "Properti"}</Text>
+            <Text style={styles.propertyTitle} numberOfLines={1}>{item.propertyTitle || t("chat.property")}</Text>
           </View>
 
           <View style={styles.bottomRow}>
@@ -141,7 +144,7 @@ export function ChatListScreen({ role }: { role: Role }) {
               style={[styles.lastMessage, { color: unread > 0 ? c.text : c.muted, fontWeight: unread > 0 ? "700" : "400" }]}
               numberOfLines={1}
             >
-              {item.lastMessage === "Percakapan dimulai" ? "Belum ada pesan — mulai percakapan" : item.lastMessage}
+              {item.lastMessage === "Percakapan dimulai" ? t("chat.noMessagesYet") : item.lastMessage}
             </Text>
             {unread > 0 && (
               <View style={styles.badge}>
@@ -162,7 +165,7 @@ export function ChatListScreen({ role }: { role: Role }) {
           <Text style={[styles.title, { color: c.text }]}>{copy.title}</Text>
           {totalUnread > 0 && (
             <View style={styles.headerBadge}>
-              <Text style={styles.headerBadgeText}>{totalUnread} baru</Text>
+              <Text style={styles.headerBadgeText}>{t("chat.newCount", { count: totalUnread })}</Text>
             </View>
           )}
         </View>
@@ -193,8 +196,8 @@ export function ChatListScreen({ role }: { role: Role }) {
       {myConversations.length > 0 && (
         <View style={styles.filterRow}>
           {[
-            { key: false, label: `Semua (${myConversations.length})` },
-            { key: true, label: `Belum dibaca${unreadChats ? ` (${unreadChats})` : ""}` },
+            { key: false, label: `${t("common.all")} (${myConversations.length})` },
+            { key: true, label: `${t("chat.unread")}${unreadChats ? ` (${unreadChats})` : ""}` },
           ].map((f) => {
             const active = unreadOnly === f.key;
             return (
@@ -214,7 +217,7 @@ export function ChatListScreen({ role }: { role: Role }) {
       {isLoadingConversations && myConversations.length === 0 ? (
         <View style={styles.loadingBox}>
           <ActivityIndicator color={PRIMARY} />
-          <Text style={styles.loadingText}>Memuat percakapan…</Text>
+          <Text style={styles.loadingText}>{t("chat.loadingConversations")}</Text>
         </View>
       ) : (
         <FlatList
@@ -229,10 +232,10 @@ export function ChatListScreen({ role }: { role: Role }) {
               <View style={styles.emptyBox}>
                 <Ionicons name={unreadOnly ? "checkmark-done-circle-outline" : "search-outline"} size={48} color="#CBD5E1" />
                 <Text style={[styles.emptyTitle, { color: c.text }]}>
-                  {unreadOnly ? "Semua pesan sudah dibaca" : "Tidak ditemukan"}
+                  {unreadOnly ? t("chat.allRead") : t("chat.notFound")}
                 </Text>
                 <Text style={styles.emptyText}>
-                  {unreadOnly ? "Tidak ada pesan baru saat ini." : `Tidak ada percakapan yang cocok dengan "${searchQuery}".`}
+                  {unreadOnly ? t("chat.noNewMessages") : t("chat.noMatch", { query: searchQuery })}
                 </Text>
               </View>
             ) : (
@@ -245,7 +248,7 @@ export function ChatListScreen({ role }: { role: Role }) {
                 {role === "buyer" && (
                   <TouchableOpacity style={styles.emptyCta} onPress={() => router.push("/maps")} activeOpacity={0.85}>
                     <Ionicons name="map-outline" size={16} color="#FFF" />
-                    <Text style={styles.emptyCtaText}>Jelajahi Properti</Text>
+                    <Text style={styles.emptyCtaText}>{t("chat.exploreProperties")}</Text>
                   </TouchableOpacity>
                 )}
               </View>

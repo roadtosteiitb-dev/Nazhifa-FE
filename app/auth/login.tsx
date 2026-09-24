@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { LanguageSwitch } from "../../components/common/LanguageSwitch";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -19,6 +21,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 
 export default function Login() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const { login } = useAuth();
   const router = useRouter();
@@ -31,7 +34,7 @@ export default function Login() {
   // ================= HANDLE LOGIN =================
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("Data belum lengkap", "Email dan kata sandi wajib diisi.");
+      Alert.alert(t("auth.incompleteTitle"), t("auth.emailPasswordRequired"));
       return;
     }
 
@@ -54,19 +57,20 @@ export default function Login() {
         } else if (role === "admin") {
           router.replace("/(tabsAdmin)/homeAdmin");
         } else {
-          Alert.alert("Kesalahan", "Role pengguna tidak dikenali.");
+          Alert.alert(t("common.error"), t("auth.unknownRole"));
         }
       } else {
-        Alert.alert("Gagal Masuk", result.message || "Email atau kata sandi salah.");
+        Alert.alert(t("auth.loginFailed"), result.message || t("auth.loginError"));
       }
     } catch (e) {
       setLoading(false);
-      Alert.alert("Kesalahan", "Terjadi kesalahan. Silakan coba lagi.");
+      Alert.alert(t("common.error"), t("auth.genericError"));
     }
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <LanguageSwitch style={{ position: "absolute", top: 52, right: 16, zIndex: 10 }} color={theme.primary} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
@@ -85,17 +89,17 @@ export default function Login() {
             />
 
             <Text style={[styles.title, { color: theme.text }]}>
-              Selamat Datang Kembali
+              {t("auth.welcomeBack")}
             </Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Masuk untuk melanjutkan pencarian properti terbaikmu
+              {t("auth.loginSubtitle")}
             </Text>
           </View>
 
           {/* ================= FORM ================= */}
           <View style={styles.form}>
             <Input
-              placeholder="Email"
+              placeholder={t("auth.email")}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -106,7 +110,7 @@ export default function Login() {
             {/* PASSWORD WITH TOGGLE */}
             <View style={{ marginTop: 14 }}>
               <Input
-                placeholder="Kata Sandi"
+                placeholder={t("auth.password")}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -128,14 +132,11 @@ export default function Login() {
             <TouchableOpacity
               style={styles.forgot}
               onPress={() =>
-                Alert.alert(
-                  "Lupa Kata Sandi",
-                  "Fitur reset password akan segera tersedia."
-                )
+                Alert.alert(t("auth.forgotPasswordTitle"), t("auth.forgotPasswordSoon"))
               }
             >
               <Text style={[styles.forgotText, { color: theme.primary }]}>
-                Lupa kata sandi?
+                {t("auth.forgotPassword")}
               </Text>
             </TouchableOpacity>
 
@@ -153,7 +154,7 @@ export default function Login() {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text style={styles.loginText}>Masuk</Text>
+                  <Text style={styles.loginText}>{t("auth.login")}</Text>
                   <Ionicons name="arrow-forward-outline" size={18} color="#fff" />
                 </>
               )}
@@ -163,7 +164,7 @@ export default function Login() {
             <View style={styles.dividerRow}>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <Text style={[styles.dividerText, { color: theme.textSecondary }]}>
-                atau lanjutkan dengan
+                {t("auth.orContinueWith")}
               </Text>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
             </View>
@@ -172,14 +173,14 @@ export default function Login() {
             <TouchableOpacity style={[styles.socialBtn, { borderColor: theme.border, borderRadius: theme.borderRadius }]}>
               <Ionicons name="logo-google" size={20} color="#DB4437" />
               <Text style={[styles.socialText, { color: theme.text }]}>
-                Masuk dengan Google
+                {t("auth.loginWithGoogle")}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.socialBtn, { borderColor: theme.border, borderRadius: theme.borderRadius }]}>
               <Ionicons name="logo-apple" size={20} color={theme.text} />
               <Text style={[styles.socialText, { color: theme.text }]}>
-                Masuk dengan Apple
+                {t("auth.loginWithApple")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -187,11 +188,11 @@ export default function Login() {
           {/* ================= FOOTER ================= */}
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: theme.textSecondary }]}>
-              Belum punya akun?
+              {t("auth.dontHaveAccount")}
             </Text>
             <TouchableOpacity onPress={() => router.push("/auth/register")}>
               <Text style={[styles.footerLink, { color: theme.primary }]}>
-                {" "}Daftar Sekarang
+                {" "}{t("auth.registerNow")}
               </Text>
             </TouchableOpacity>
           </View>

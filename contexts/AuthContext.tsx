@@ -1,6 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import api from '@/services/apiClient';
+import {
+  ApiUserProfile,
+  LocalImage,
+  deleteProfilePhoto,
+  fetchMe,
+  updateProfile,
+  uploadProfilePhoto,
+} from '@/services/ProfileService';
 
 const TOKEN_KEY  = '@lokatani_token';
 const USER_KEY   = '@lokatani:user';
@@ -52,7 +60,14 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<AuthResponse>;
   register: (data: RegisterData) => Promise<AuthResponse>;
   logout: () => Promise<void>;
+  /** Local-only fields (gender, dob, address, location) — not stored on the server */
   updateUser: (userData: Partial<User>) => Promise<void>;
+  /** Save name / email / phone to the server (users table) */
+  saveProfile: (data: { fullName?: string; email?: string; phone?: string }) => Promise<void>;
+  /** Upload a new profile photo to the server (users.photo) */
+  uploadPhoto: (image: LocalImage) => Promise<void>;
+  /** Remove the profile photo on the server */
+  removePhoto: () => Promise<void>;
 }
 
 // ==============================
@@ -69,7 +84,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const loadUser = async () => {
       try {
         const userData = await AsyncStorage.getItem(USER_KEY);
-        if (userData) setUser(JSON.parse(userData));
+        if (userData) {
+          const cached: User = JSON.parse(userData);
+          setUser(cached);
+          // Refresh name / phone / photo from the server in the background (e.g. photo changed on another device)
+          fetchMe()
+            .then((p) => {
+              const merged = mergeProfile(cached, p);
+              setUser(merged);
+              AsyncStorage.setItem(USER_KEY, JSON.stringify(merged)).catch(() => {});
+            })
+            .catch(() => {});
+        }
       } catch (error) {
         console.error('Error loading cached user:', error);
       } finally {
@@ -87,15 +113,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email, password,
         fullName,
         userType,
+        phone: phone || undefined,
       });
 
       const { token, user: apiUser } = res.data;
       const mappedUser: User = {
         id:        apiUser.id,
         email:     apiUser.email,
-        fullName:  apiUser.full_name || fullName,
-        phone:     phone || '',
-        userType:  apiUser.user_type,
+        fullName:  apiUser.fullName || apiUser.full_name || fullName,
+        phone:     apiUser.phone || phone || '',
+        userType:  apiUser.userType || apiUser.user_type || userType,
+        photo:     apiUser.photo || undefined,
         createdAt: new Date().toISOString(),
       };
 
@@ -159,12 +187,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Apply a server profile to the current user and persist it
+  const applyProfile = async (p: ApiUserProfile) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const merged = mergeProfile(prev, p);
+      AsyncStorage.setItem(USER_KEY, JSON.stringify(merged)).catch(() => {});
+      return merged;
+    });
+  };
+
+  const saveProfile = async (data: { fullName?: string; email?: string; phone?: string }) => {
+    applyProfile(await updateProfile(data));
+  };
+
+  const uploadPhoto = async (image: LocalImage) => {
+    applyProfile(await uploadProfilePhoto(image));
+  };
+
+  const removePhoto = async () => {
+    applyProfile(await deleteProfilePhoto());
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout, updateUser, saveProfile, uploadPhoto, removePhoto }}>
       {children}
     </AuthContext.Provider>
   );
 };
+
+/** Server-owned fields win; local-only extras (gender, dob, address, location) are kept */
+function mergeProfile(local: User, p: ApiUserProfile): User {
+  return {
+    ...local,
+    fullName: p.fullName ?? local.fullName,
+    email: p.email ?? local.email,
+    phone: p.phone ?? '',
+    userType: p.userType ?? local.userType,
+    photo: p.photo ?? undefined,
+  };
+}
 
 // Hook
 export const useAuth = () => {

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
@@ -7,6 +8,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useChat } from '../../contexts/ChatContext';
 
 export default function PetaniLayout() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { totalUnread } = useChat();
@@ -35,7 +37,7 @@ export default function PetaniLayout() {
       <Tabs.Screen
         name="homeOwner"
         options={{
-          title: 'Beranda',
+          title: t("tabs.home"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
           ),
@@ -46,7 +48,7 @@ export default function PetaniLayout() {
       <Tabs.Screen
         name="addland"
         options={{
-          title: 'Produk',
+          title: t("tabs.addProperty"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="add-circle-outline" size={size} color={color} />
           ),
@@ -58,7 +60,7 @@ export default function PetaniLayout() {
       <Tabs.Screen
         name="chat"
         options={{
-          title: 'Chat',
+          title: t("tabs.chat"),
           tabBarBadge: totalUnread > 0 ? (totalUnread > 99 ? "99+" : totalUnread) : undefined,
           tabBarBadgeStyle: { backgroundColor: "#DC2626", color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
           tabBarIcon: ({ color, size }) => (
@@ -71,7 +73,7 @@ export default function PetaniLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: t("tabs.profile"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),

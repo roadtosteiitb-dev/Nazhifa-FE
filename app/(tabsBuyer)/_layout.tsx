@@ -4,8 +4,7 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../contexts/ThemeContext";
-import { BookmarkProvider, useBookmark } from "../../contexts/BookmarkContext";
-import { LandProvider } from "../../contexts/LandContext"; // ✅ Tambahkan ini agar data lahan global tersedia
+import { useBookmark } from "../../contexts/BookmarkContext";
 import { useChat } from "../../contexts/ChatContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -42,7 +41,7 @@ function BuyerTabs() {
       <Tabs.Screen
         name="homeBuyer"
         options={{
-          title: t("home.title") || "Beranda",
+          title: t("tabs.home"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" size={size} color={color} />
           ),
@@ -53,7 +52,7 @@ function BuyerTabs() {
       <Tabs.Screen
         name="favorites"
         options={{
-          title: t("favorites.title") || "Favorit",
+          title: t("tabs.favorites"),
           tabBarIcon: ({ color, size }) => (
             <View>
               <Ionicons name="heart-outline" size={size} color={color} />
@@ -75,7 +74,7 @@ function BuyerTabs() {
         <Tabs.Screen
           name="chat"
           options={{
-            title: 'Chat',
+            title: t("tabs.chat"),
             tabBarBadge: totalUnread > 0 ? (totalUnread > 99 ? "99+" : totalUnread) : undefined,
             tabBarBadgeStyle: { backgroundColor: "#DC2626", color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
             tabBarIcon: ({ color, size }) => (
@@ -88,7 +87,7 @@ function BuyerTabs() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: t("profile.title") || "Profil",
+          title: t("tabs.profile"),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" size={size} color={color} />
           ),
@@ -98,15 +97,10 @@ function BuyerTabs() {
   );
 }
 
+// LandProvider & BookmarkProvider live in the root layout, so property data and
+// favorites are shared with screens outside the tabs (e.g. the property detail page).
 export default function PembeliLayout() {
-  return (
-    <BookmarkProvider>
-        {/* ✅ Bungkus agar data tanah tersedia di semua tab */}
-        <LandProvider>
-          <BuyerTabs />
-        </LandProvider>
-    </BookmarkProvider>
-  );
+  return <BuyerTabs />;
 }
 
 const styles = StyleSheet.create({

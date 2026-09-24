@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
@@ -35,6 +36,7 @@ const roleIcons: Record<string, string> = {
 type FilterType = "all" | "active" | "inactive" | "owner" | "buyer";
 
 export default function UsersScreen() {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -74,17 +76,17 @@ export default function UsersScreen() {
     if (!target) return;
     const newStatus = target.status === "active" ? "inactive" : "active";
 
-    Alert.alert("Confirm", "Toggle this user's account status?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("common.confirm"), newStatus === "inactive" ? t("admin.users.disableConfirm") : t("admin.users.enableConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
       {
-        text: "Confirm",
+        text: t("common.confirm"),
         onPress: async () => {
           try {
             const updated = await updateUserStatus(id, newStatus);
             setUsers((prev) => prev.map((u) => (u.id === id ? updated : u)));
             setSelectedUser(null);
           } catch {
-            Alert.alert("Gagal", "Tidak dapat mengubah status user.");
+            Alert.alert(t("common.failed"), t("admin.users.statusFailed"));
           }
         },
       },
@@ -92,11 +94,11 @@ export default function UsersScreen() {
   };
 
   const filters: { label: string; value: FilterType }[] = [
-    { label: "All", value: "all" },
-    { label: "Active", value: "active" },
-    { label: "Inactive", value: "inactive" },
-    { label: "Owners", value: "owner" },
-    { label: "Buyers", value: "buyer" },
+    { label: t("common.all"), value: "all" },
+    { label: t("admin.users.active"), value: "active" },
+    { label: t("admin.users.inactive"), value: "inactive" },
+    { label: t("admin.users.owners"), value: "owner" },
+    { label: t("admin.users.buyers"), value: "buyer" },
   ];
 
   // ── Profile View ──
@@ -108,7 +110,7 @@ export default function UsersScreen() {
           <TouchableOpacity onPress={() => setSelectedUser(null)} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
           </TouchableOpacity>
-          <Text style={styles.detailHeaderTitle}>User Profile</Text>
+          <Text style={styles.detailHeaderTitle}>{t("admin.users.profile")}</Text>
           <View style={{ width: 42 }} />
         </View>
 
@@ -121,7 +123,7 @@ export default function UsersScreen() {
             <View style={[styles.roleTag, { backgroundColor: roleColors[u.role] + "18" }]}>
               <Ionicons name={roleIcons[u.role] as any} size={12} color={roleColors[u.role]} />
               <Text style={[styles.roleTagText, { color: roleColors[u.role] }]}>
-                {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+                {t(`roles.${u.role}`, { defaultValue: u.role })}
               </Text>
             </View>
           </View>
@@ -129,17 +131,17 @@ export default function UsersScreen() {
           <View style={styles.profileInfoGrid}>
             <View style={styles.profileInfoCard}>
               <Ionicons name="mail-outline" size={18} color={PRIMARY} />
-              <Text style={styles.profileInfoLabel}>Email</Text>
+              <Text style={styles.profileInfoLabel}>{t("auth.email")}</Text>
               <Text style={styles.profileInfoValue}>{u.email}</Text>
             </View>
             <View style={styles.profileInfoCard}>
               <Ionicons name="call-outline" size={18} color={PRIMARY} />
-              <Text style={styles.profileInfoLabel}>Phone</Text>
+              <Text style={styles.profileInfoLabel}>{t("auth.phone")}</Text>
               <Text style={styles.profileInfoValue}>{u.phone || "-"}</Text>
             </View>
             <View style={styles.profileInfoCard}>
               <Ionicons name="calendar-outline" size={18} color={PRIMARY} />
-              <Text style={styles.profileInfoLabel}>Joined</Text>
+              <Text style={styles.profileInfoLabel}>{t("admin.users.joined")}</Text>
               <Text style={styles.profileInfoValue}>{u.joinDate || "-"}</Text>
             </View>
             <View style={styles.profileInfoCard}>
@@ -148,9 +150,9 @@ export default function UsersScreen() {
                 size={18}
                 color={u.status === "active" ? "#16A34A" : DANGER}
               />
-              <Text style={styles.profileInfoLabel}>Status</Text>
+              <Text style={styles.profileInfoLabel}>{t("admin.users.status")}</Text>
               <Text style={[styles.profileInfoValue, { color: u.status === "active" ? "#16A34A" : DANGER }]}>
-                {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
+                {u.status === "active" ? t("admin.users.active") : t("admin.users.inactive")}
               </Text>
             </View>
           </View>
@@ -165,7 +167,7 @@ export default function UsersScreen() {
               color="#fff"
             />
             <Text style={styles.toggleBtnText}>
-              {u.status === "active" ? "Disable Account" : "Enable Account"}
+              {u.status === "active" ? t("admin.users.disable") : t("admin.users.enable")}
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -177,14 +179,14 @@ export default function UsersScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>User Management</Text>
-        <Text style={styles.pageSubtitle}>{users.length} registered users</Text>
+        <Text style={styles.pageTitle}>{t("admin.users.title")}</Text>
+        <Text style={styles.pageSubtitle}>{t("admin.users.count", { count: users.length })}</Text>
       </View>
 
       <View style={styles.searchBar}>
         <Ionicons name="search-outline" size={20} color={TEXT_SECONDARY} style={{ marginLeft: 14 }} />
         <TextInput
-          placeholder="Search users by name or email..."
+          placeholder={t("admin.users.search")}
           value={search}
           onChangeText={setSearch}
           style={styles.searchInput}
@@ -213,7 +215,7 @@ export default function UsersScreen() {
         {!isLoading && filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color="#CBD5E1" />
-            <Text style={styles.emptyText}>Tidak ada user ditemukan.</Text>
+            <Text style={styles.emptyText}>{t("admin.users.empty")}</Text>
           </View>
         ) : (
           filtered.map((u) => (
@@ -228,7 +230,7 @@ export default function UsersScreen() {
                   <View style={[styles.roleTag, { backgroundColor: roleColors[u.role] + "18" }]}>
                     <Ionicons name={roleIcons[u.role] as any} size={11} color={roleColors[u.role]} />
                     <Text style={[styles.roleTagText, { color: roleColors[u.role] }]}>
-                      {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+                      {t(`roles.${u.role}`, { defaultValue: u.role })}
                     </Text>
                   </View>
                   <View
@@ -249,7 +251,7 @@ export default function UsersScreen() {
                         { color: u.status === "active" ? "#16A34A" : DANGER },
                       ]}
                     >
-                      {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
+                      {u.status === "active" ? t("admin.users.active") : t("admin.users.inactive")}
                     </Text>
                   </View>
                 </View>

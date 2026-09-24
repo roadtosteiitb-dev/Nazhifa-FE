@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -38,6 +39,7 @@ export function openExternalDirections(to: LatLng, from?: LatLng) {
 }
 
 export function RouteModal({ visible, onClose, landId, propertyName, propertyCoords, facility }: Props) {
+  const { t } = useTranslation();
   const mapRef = useRef<MapView>(null);
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,7 +55,7 @@ export function RouteModal({ visible, onClose, landId, propertyName, propertyCoo
     try {
       setRoute(await fetchRoute(landId, { lat: facility.lat, lng: facility.lng }));
     } catch (e: any) {
-      setError(e.response?.data?.error || "Rute tidak dapat dimuat.");
+      setError(e.response?.data?.error || t("route.loadError"));
     } finally {
       setLoading(false);
     }
@@ -114,7 +116,7 @@ export function RouteModal({ visible, onClose, landId, propertyName, propertyCoo
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} activeOpacity={0.8}>
               <Ionicons name="close" size={22} color="#0F172A" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Rute ke {facility.category}</Text>
+            <Text style={styles.headerTitle}>{t("route.to", { place: facility.category })}</Text>
           </View>
         </SafeAreaView>
 
@@ -134,32 +136,32 @@ export function RouteModal({ visible, onClose, landId, propertyName, propertyCoo
             {loading ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={PRIMARY} />
-                <Text style={styles.mutedText}>Menghitung rute…</Text>
+                <Text style={styles.mutedText}>{t("route.calculating")}</Text>
               </View>
             ) : error ? (
               <View style={styles.loadingRow}>
                 <Ionicons name="alert-circle-outline" size={18} color="#DC2626" />
                 <Text style={[styles.mutedText, { color: "#DC2626", flex: 1 }]}>{error}</Text>
                 <TouchableOpacity onPress={load}>
-                  <Text style={styles.retryText}>Coba lagi</Text>
+                  <Text style={styles.retryText}>{t("common.retry")}</Text>
                 </TouchableOpacity>
               </View>
             ) : route ? (
               <>
                 <View style={styles.statBox}>
                   <Ionicons name="car-outline" size={18} color={PRIMARY} />
-                  <Text style={styles.statValue}>{route.durationMinutes} mnt</Text>
-                  <Text style={styles.statLabel}>Waktu tempuh</Text>
+                  <Text style={styles.statValue}>{t("route.minutes", { count: route.durationMinutes })}</Text>
+                  <Text style={styles.statLabel}>{t("route.travelTime")}</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Ionicons name="trail-sign-outline" size={18} color={PRIMARY} />
                   <Text style={styles.statValue}>{route.distanceKm} km</Text>
-                  <Text style={styles.statLabel}>Jarak jalan</Text>
+                  <Text style={styles.statLabel}>{t("route.roadDistance")}</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Ionicons name="resize-outline" size={18} color="#64748B" />
                   <Text style={styles.statValue}>{facility.distanceKm} km</Text>
-                  <Text style={styles.statLabel}>Garis lurus</Text>
+                  <Text style={styles.statLabel}>{t("route.straightLine")}</Text>
                 </View>
               </>
             ) : null}
@@ -171,7 +173,7 @@ export function RouteModal({ visible, onClose, landId, propertyName, propertyCoo
             activeOpacity={0.85}
           >
             <Ionicons name="navigate" size={18} color="#FFFFFF" />
-            <Text style={styles.navBtnText}>Buka Navigasi di Google Maps</Text>
+            <Text style={styles.navBtnText}>{t("route.openGoogleMaps")}</Text>
           </TouchableOpacity>
         </SafeAreaView>
       </View>

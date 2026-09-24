@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,35 +12,68 @@ import {
   Share,
   Alert,
   Modal,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useLands, Land } from "../../contexts/LandContext";
+import { useChat } from "../../contexts/ChatContext";
+import {
+  ApiNotification,
+  fetchNotifications,
+  markAllNotificationsRead,
+} from "../../services/NotificationService";
+import { avatarColor, formatListTime, getInitials as chatInitials } from "../../utils/chatFormat";
 import { useAuth } from "../../contexts/AuthContext";
 
 export default function HomeOwner() {
+  const { t } = useTranslation();
   const { theme } = useTheme();
   const router = useRouter();
   const { user } = useAuth();
-  const { lands = [], setLands, notifications = [], setNotifications, addNotification } = useLands() || {};
+  const { lands = [], refreshLands, updateLandStatus } = useLands();
+  const { conversations, totalUnread: unreadMessages } = useChat();
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const ownerNotifications = useMemo(() => {
-    return notifications.filter((n) => n.ownerName === user?.fullName);
-  }, [notifications, user?.fullName]);
+  // Only this owner's properties (matched by id, not by display name)
+  const myLands = useMemo(() => lands.filter((l) => !!user && l.ownerId === user.id), [lands, user?.id]);
 
-  const unreadCount = useMemo(() => {
-    return ownerNotifications.filter((n) => !n.read).length;
-  }, [ownerNotifications]);
-
-  const handleMarkAllRead = () => {
-    if (setNotifications) {
-      setNotifications((prev) =>
-        prev.map((n) => (n.ownerName === user?.fullName ? { ...n, read: true } : n))
-      );
+  // ── Notifications from GET /api/notifications ──
+  const [ownerNotifications, setOwnerNotifications] = useState<ApiNotification[]>([]);
+  const loadNotifications = useCallback(async () => {
+    try {
+      setOwnerNotifications(await fetchNotifications());
+    } catch {
+      // keep the last known list
     }
+  }, []);
+
+  const unreadCount = useMemo(() => ownerNotifications.filter((n) => !n.isRead).length, [ownerNotifications]);
+
+  const handleMarkAllRead = async () => {
+    setOwnerNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    try {
+      await markAllNotificationsRead();
+    } catch {
+      loadNotifications();
+    }
+  };
+
+  // Fresh numbers every time the dashboard is opened
+  useFocusEffect(
+    useCallback(() => {
+      refreshLands();
+      loadNotifications();
+    }, [refreshLands, loadNotifications])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([refreshLands(), loadNotifications()]);
+    setRefreshing(false);
   };
 
   // State untuk pencarian dan filter
@@ -50,10 +84,10 @@ export default function HomeOwner() {
   const [activeTipIndex, setActiveTipIndex] = useState(0);
 
   const tips = [
-    "Properti dengan foto & deskripsi lengkap cenderung lebih cepat diminati pembeli.",
-    "Tanggapi chat calon pembeli dalam waktu kurang dari 15 menit untuk meningkatkan konversi.",
-    "Gunakan foto sudut lebar (wide-angle) dan pencahayaan terang saat memotret properti Anda.",
-    "Tentukan harga sewa/jual yang realistis dengan memantau kisaran harga pasar daerah sekitar.",
+    t("homeOwner.tip1"),
+    t("homeOwner.tip2"),
+    t("homeOwner.tip3"),
+    t("homeOwner.tip4"),
   ];
 
   // Auto-rotate tips setiap 10 detik
@@ -64,45 +98,35 @@ export default function HomeOwner() {
     return () => clearInterval(interval);
   }, []);
 
-  // Hitung statistik dinamis
+  // Statistik dari data asli (hanya properti milik owner ini)
   const stats = useMemo(() => {
-    const totalProperties = lands.length;
-    const totalViews = lands.reduce((sum, item) => sum + (item.views || 0), 0);
-    const totalFavorites = lands.reduce((sum, item) => sum + (item.favorites || 0), 0);
-    const totalInquiries = lands.reduce((sum, item) => sum + (item.inquiriesCount || 0), 0);
+    const count = (status: string) => myLands.filter((l) => l.status === status).length;
+    return {
+      totalProperties: myLands.length,
+      totalViews: myLands.reduce((sum, item) => sum + (item.views || 0), 0),
+      totalFavorites: myLands.reduce((sum, item) => sum + (item.favorites || 0), 0),
+      totalInquiries: myLands.reduce((sum, item) => sum + (item.inquiriesCount || 0), 0),
+      active: count("Approved"),
+      pending: count("Pending"),
+      rejected: count("Rejected"),
+      sold: count("Sold"),
+      archived: count("Archived"),
+    };
+  }, [myLands]);
 
-    return { totalProperties, totalViews, totalFavorites, totalInquiries };
-  }, [lands]);
-
-  // Mock data untuk Calon Pembeli (Leads)
-  const mockLeads = [
-    {
-      id: "l1",
-      buyerName: "Adit Nugroho",
-      propertyName: "Rumah Minimalis Modern Sleman",
-      time: "5 menit yang lalu",
-      avatar: "A",
-    },
-    {
-      id: "l2",
-      buyerName: "Dewi Lestari",
-      propertyName: "Apartemen Studio Mewah Malioboro",
-      time: "2 jam yang lalu",
-      avatar: "D",
-    },
-    {
-      id: "l3",
-      buyerName: "Fajar Prasetyo",
-      propertyName: "Cluster Eksklusif Sentul Residence",
-      time: "1 hari yang lalu",
-      avatar: "F",
-    },
-  ];
+  // Calon pembeli = percakapan terbaru tentang properti milik owner ini
+  const leads = useMemo(
+    () =>
+      conversations
+        .filter((c) => !!user && c.ownerId === user.id)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, 3),
+    [conversations, user?.id]
+  );
 
   // Filter properti berdasarkan search query dan tab filter
   const filteredLands = useMemo(() => {
-    return lands.filter((item) => {
-      const matchesOwner = item.owner === user?.fullName;
+    return myLands.filter((item) => {
 
       const matchesSearch =
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -113,82 +137,58 @@ export default function HomeOwner() {
         (selectedFilter === "dijual" && item.isForSale) ||
         (selectedFilter === "disewa" && !item.isForSale);
 
-      return matchesOwner && matchesSearch && matchesCategory;
+      return matchesSearch && matchesCategory;
     });
-  }, [lands, searchQuery, selectedFilter, user?.fullName]);
+  }, [myLands, searchQuery, selectedFilter]);
 
   // Handler toggle status ketersediaan properti (Approved vs Sold vs Archived)
+  const changeStatus = async (id: string, status: "Approved" | "Sold" | "Archived") => {
+    try {
+      await updateLandStatus(id, status);
+      loadNotifications();
+    } catch (error: any) {
+      Alert.alert(t("common.failed"), error?.response?.data?.error || t("homeOwner.statusChangeFailed"));
+    }
+  };
+
   const handleToggleStatus = (id: string, currentStatus?: string) => {
-    const targetLand = lands.find((l) => l.id === id);
+    const targetLand = myLands.find((l) => l.id === id);
     if (!targetLand) return;
 
     if (currentStatus === "Sold" || currentStatus === "Archived") {
       Alert.alert(
-        "Ubah Status Properti",
-        "Apakah Anda yakin ingin mengaktifkan kembali properti ini menjadi Tersedia?",
+        t("homeOwner.changeStatus"),
+        t("homeOwner.reactivateConfirm"),
         [
-          { text: "Batal", style: "cancel" },
+          { text: t("common.cancel"), style: "cancel" },
           {
-            text: "Aktifkan",
-            onPress: () => {
-              if (setLands) {
-                setLands((prevLands) =>
-                  prevLands.map((item) =>
-                    item.id === id ? { ...item, status: "Approved" } : item
-                  )
-                );
-                if (addNotification) {
-                  addNotification(id, targetLand.name, "approved", user?.fullName || "Owner");
-                }
-              }
-            },
+            text: t("homeOwner.activate"),
+            onPress: () => changeStatus(id, "Approved"),
           },
         ]
       );
     } else if (currentStatus === "Approved") {
       Alert.alert(
-        "Ubah Status Properti",
-        "Pilih status baru untuk properti Anda:",
+        t("homeOwner.changeStatus"),
+        t("homeOwner.chooseNewStatus"),
         [
-          { text: "Batal", style: "cancel" },
+          { text: t("common.cancel"), style: "cancel" },
           {
-            text: "Tandai Terjual",
-            onPress: () => {
-              if (setLands) {
-                setLands((prevLands) =>
-                  prevLands.map((item) =>
-                    item.id === id ? { ...item, status: "Sold" } : item
-                  )
-                );
-                if (addNotification) {
-                  addNotification(id, targetLand.name, "sold", user?.fullName || "Owner");
-                }
-              }
-            },
+            text: t("homeOwner.markSold"),
+            onPress: () => changeStatus(id, "Sold"),
           },
           {
-            text: "Arsipkan",
-            onPress: () => {
-              if (setLands) {
-                setLands((prevLands) =>
-                  prevLands.map((item) =>
-                    item.id === id ? { ...item, status: "Archived" } : item
-                  )
-                );
-                if (addNotification) {
-                  addNotification(id, targetLand.name, "archived", user?.fullName || "Owner");
-                }
-              }
-            },
+            text: t("homeOwner.archive"),
+            onPress: () => changeStatus(id, "Archived"),
           },
         ]
       );
     } else if (currentStatus === "Pending") {
-      Alert.alert("Info", "Properti Anda sedang menunggu persetujuan administrator.");
+      Alert.alert(t("common.info"), t("homeOwner.pendingInfo"));
     } else if (currentStatus === "Rejected") {
       Alert.alert(
-        "Pengajuan Ditolak",
-        `Alasan: "${targetLand.rejectionReason || "Lokasi properti tidak sesuai."}"\n\nSilakan hubungi administrator atau ajukan properti baru.`
+        t("homeOwner.rejectedTitle"),
+        t("homeOwner.rejectedText", { reason: targetLand.rejectionReason || t("homeOwner.noReason") })
       );
     }
   };
@@ -196,9 +196,9 @@ export default function HomeOwner() {
   // Handler membagikan ringkasan properti
   const handleShareProperty = async (item: Land) => {
     try {
-      const typeLabel = item.isForSale ? "Dijual" : "Disewa";
-      const priceText = `Rp ${(item.price || 0).toLocaleString("id-ID")}${item.isForSale ? "" : " / tahun"}`;
-      const message = `*${item.name}* (${typeLabel})\n📍 Lokasi: ${item.location}\n💰 Harga: ${priceText}\n\nHubungi saya untuk detail selengkapnya melalui aplikasi Lokatani!`;
+      const typeLabel = item.isForSale ? t("property.forSale") : t("property.forRent");
+      const priceText = `Rp ${(item.price || 0).toLocaleString("id-ID")}${item.isForSale ? "" : ` ${t("property.perMonth")}`}`;
+      const message = t("homeOwner.shareMessage", { name: item.name, type: typeLabel, location: item.location, price: priceText });
       
       await Share.share({ message });
     } catch (error) {
@@ -210,7 +210,7 @@ export default function HomeOwner() {
     return (
       <View style={[styles.loading, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={{ color: theme.text, marginTop: 12 }}>Memuat dashboard properti...</Text>
+        <Text style={{ color: theme.text, marginTop: 12 }}>{t("homeOwner.loading")}</Text>
       </View>
     );
   }
@@ -223,14 +223,18 @@ export default function HomeOwner() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={["top"]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 110 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.primary]} tintColor={theme.primary} />}
+      >
         
         {/* 👋 Header & Owner Profile */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Text style={[styles.greeting, { color: theme.textSecondary }]}>Selamat Datang 👋</Text>
+            <Text style={[styles.greeting, { color: theme.textSecondary }]}>{t("homeOwner.welcome")}</Text>
             <Text style={[styles.ownerName, { color: theme.text }]} numberOfLines={1}>
-              {user?.fullName || "Pemilik Properti"}
+              {user?.fullName || t("auth.owner")}
             </Text>
           </View>
           
@@ -265,7 +269,7 @@ export default function HomeOwner() {
           <View style={styles.insightHeader}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
               <Ionicons name="bulb" size={18} color={theme.primary} />
-              <Text style={[styles.insightTitle, { color: theme.primary }]}>Tips Penjualan</Text>
+              <Text style={[styles.insightTitle, { color: theme.primary }]}>{t("homeOwner.salesTips")}</Text>
             </View>
             <View style={styles.tipsIndicator}>
               {tips.map((_, idx) => (
@@ -295,47 +299,88 @@ export default function HomeOwner() {
         {/* 📊 Ringkasan Statistik & Performa Properti */}
         <View style={styles.statsGrid}>
           <View style={styles.statsRow}>
-            <StatCard icon="home-outline" label="Total Properti" value={stats.totalProperties} theme={theme} />
-            <StatCard icon="eye-outline" label="Total Dilihat" value={stats.totalViews} theme={theme} />
+            <StatCard icon="home-outline" label={t("homeOwner.totalProperties")} value={stats.totalProperties} theme={theme} />
+            <StatCard icon="eye-outline" label={t("homeOwner.totalViews")} value={stats.totalViews} theme={theme} />
           </View>
           <View style={styles.statsRow}>
-            <StatCard icon="heart-outline" label="Total Favorit" value={stats.totalFavorites} theme={theme} />
-            <StatCard icon="chatbubbles-outline" label="Chat Inquiry" value={stats.totalInquiries || 12} theme={theme} />
+            <StatCard icon="heart-outline" label={t("homeOwner.totalFavorites")} value={stats.totalFavorites} theme={theme} />
+            <StatCard icon="chatbubbles-outline" label={t("homeOwner.chatInquiries")} value={stats.totalInquiries} theme={theme} />
           </View>
-        </View>
 
-        {/* 👤 Calon Pembeli Tertarik (Leads) Panel */}
-        {lands.length > 0 && (
-          <View style={styles.leadsSection}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Calon Pembeli Tertarik (Leads)</Text>
-            <View style={[styles.leadsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              {mockLeads.map((lead, index) => (
-                <View key={lead.id}>
-                  <View style={styles.leadItem}>
-                    <View style={[styles.leadAvatar, { backgroundColor: theme.primary + "15" }]}>
-                      <Text style={[styles.leadAvatarText, { color: theme.primary }]}>{lead.avatar}</Text>
-                    </View>
-                    <View style={styles.leadInfo}>
-                      <Text style={[styles.leadName, { color: theme.text }]}>{lead.buyerName}</Text>
-                      <Text style={[styles.leadProp, { color: theme.textSecondary }]} numberOfLines={1}>
-                        Tertarik pada: {lead.propertyName}
-                      </Text>
-                      <Text style={[styles.leadTime, { color: theme.textSecondary + "80" }]}>{lead.time}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={[styles.leadChatBtn, { backgroundColor: theme.primary }]}
-                      onPress={() => router.push("/chat")}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="chatbubble-ellipses" size={16} color="#FFF" />
-                      <Text style={styles.leadChatText}>Chat</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {index < mockLeads.length - 1 && (
-                    <View style={[styles.leadDivider, { backgroundColor: theme.border + "50" }]} />
-                  )}
+          {/* Status breakdown */}
+          {stats.totalProperties > 0 && (
+            <View style={[styles.statusSummary, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {[
+                { label: t("homeOwner.statusActive"), value: stats.active, color: "#16A34A" },
+                { label: t("homeOwner.statusPending"), value: stats.pending, color: "#F59E0B" },
+                { label: t("homeOwner.statusRejected"), value: stats.rejected, color: "#EF4444" },
+                { label: t("homeOwner.statusSold"), value: stats.sold, color: "#3550DC" },
+                { label: t("homeOwner.statusArchived"), value: stats.archived, color: "#64748B" },
+              ].map((s) => (
+                <View key={s.label} style={styles.statusSummaryItem}>
+                  <Text style={[styles.statusSummaryValue, { color: s.color }]}>{s.value}</Text>
+                  <Text style={[styles.statusSummaryLabel, { color: theme.textSecondary }]}>{s.label}</Text>
                 </View>
               ))}
+            </View>
+          )}
+        </View>
+
+        {/* 👤 Calon Pembeli Tertarik (Leads) — real conversations */}
+        {myLands.length > 0 && (
+          <View style={styles.leadsSection}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{t("homeOwner.leadsTitle")}</Text>
+              {leads.length > 0 && (
+                <TouchableOpacity onPress={() => router.push("/(tabsOwner)/chat")}>
+                  <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 13 }}>
+                    {t("common.seeAll")}{unreadMessages > 0 ? ` (${t("chat.newCount", { count: unreadMessages })})` : ""}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={[styles.leadsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {leads.length === 0 ? (
+                <View style={{ alignItems: "center", paddingVertical: 14 }}>
+                  <Ionicons name="people-outline" size={28} color={theme.textSecondary + "80"} />
+                  <Text style={{ color: theme.textSecondary, fontSize: 13, marginTop: 6, textAlign: "center" }}>
+                    {t("homeOwner.noLeads")}
+                  </Text>
+                </View>
+              ) : (
+                leads.map((lead, index) => (
+                  <View key={lead.id}>
+                    <View style={styles.leadItem}>
+                      <View style={[styles.leadAvatar, { backgroundColor: avatarColor(lead.buyerName) }]}>
+                        <Text style={[styles.leadAvatarText, { color: "#FFFFFF" }]}>{chatInitials(lead.buyerName)}</Text>
+                      </View>
+                      <View style={styles.leadInfo}>
+                        <Text style={[styles.leadName, { color: theme.text }]} numberOfLines={1}>
+                          {lead.buyerName || t("chat.prospectiveBuyer")}
+                        </Text>
+                        <Text style={[styles.leadProp, { color: theme.textSecondary }]} numberOfLines={1}>
+                          {t("homeOwner.interestedIn", { property: lead.propertyTitle })}
+                        </Text>
+                        <Text style={[styles.leadTime, { color: theme.textSecondary + "80" }]}>
+                          {formatListTime(lead.updatedAt)}
+                          {lead.unreadOwner > 0 ? ` · ${t("homeOwner.newMessages", { count: lead.unreadOwner })}` : ""}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.leadChatBtn, { backgroundColor: theme.primary }]}
+                        onPress={() => router.push({ pathname: "/ChatRoom", params: { chatId: lead.id, propertyId: lead.propertyId } })}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="chatbubble-ellipses" size={16} color="#FFF" />
+                        <Text style={styles.leadChatText}>{t("tabs.chat")}</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {index < leads.length - 1 && (
+                      <View style={[styles.leadDivider, { backgroundColor: theme.border + "50" }]} />
+                    )}
+                  </View>
+                ))
+              )}
             </View>
           </View>
         )}
@@ -345,7 +390,7 @@ export default function HomeOwner() {
           <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Ionicons name="search" size={20} color={theme.textSecondary} style={styles.searchIcon} />
             <TextInput
-              placeholder="Cari nama properti atau lokasi..."
+              placeholder={t("homeOwner.searchPlaceholder")}
               placeholderTextColor={theme.textSecondary + "90"}
               style={[styles.searchInput, { color: theme.text }]}
               value={searchQuery}
@@ -384,7 +429,7 @@ export default function HomeOwner() {
                       },
                     ]}
                   >
-                    {filter.toUpperCase()}
+                    {(filter === "semua" ? t("common.all") : filter === "dijual" ? t("property.forSale") : t("property.forRent")).toUpperCase()}
                   </Text>
                 </TouchableOpacity>
               );
@@ -394,31 +439,31 @@ export default function HomeOwner() {
 
         {/* 🏠 Properti List */}
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Kelola Hunian Anda</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{t("homeOwner.manageProperties")}</Text>
           <TouchableOpacity
             style={[styles.smallAddBtn, { backgroundColor: theme.primary + "15" }]}
             onPress={() => router.push("/addland")}
           >
             <Ionicons name="add" size={16} color={theme.primary} />
-            <Text style={[styles.smallAddText, { color: theme.primary }]}>Tambah</Text>
+            <Text style={[styles.smallAddText, { color: theme.primary }]}>{t("addProperty.add")}</Text>
           </TouchableOpacity>
         </View>
 
         {filteredLands.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="business-outline" size={54} color={theme.textSecondary + "60"} />
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>Tidak ada properti</Text>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>{t("homeOwner.noProperties")}</Text>
             <Text style={[styles.emptyDesc, { color: theme.textSecondary }]}>
               {searchQuery
-                ? "Tidak menemukan properti yang cocok dengan pencarian Anda."
-                : "Unggah hunian rumah atau apartemen Anda untuk mulai beriklan."}
+                ? t("homeOwner.noSearchResults")
+                : t("homeOwner.uploadToStart")}
             </Text>
             {!searchQuery && (
               <TouchableOpacity
                 style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
                 onPress={() => router.push("/addland")}
               >
-                <Text style={styles.primaryText}>Tambah Properti Baru</Text>
+                <Text style={styles.primaryText}>{t("homeOwner.addNewProperty")}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -467,7 +512,7 @@ export default function HomeOwner() {
                         fontSize: 10,
                       }}
                     >
-                      {item.isForSale ? "DIJUAL" : "DISEWA"}
+                      {item.isForSale ? t("property.forSaleBadge") : t("property.forRentBadge")}
                     </Text>
                   </View>
 
@@ -505,15 +550,7 @@ export default function HomeOwner() {
                         fontSize: 10,
                       }}
                     >
-                      {item.status === "Pending"
-                        ? "PENDING"
-                        : item.status === "Approved"
-                        ? "DISETUJUI"
-                        : item.status === "Rejected"
-                        ? "DITOLAK"
-                        : item.status === "Archived"
-                        ? "DIARSIPKAN"
-                        : "TERJUAL"}
+                      {t(`homeOwner.badge.${item.status ?? "Sold"}`).toUpperCase()}
                     </Text>
                   </View>
 
@@ -521,7 +558,7 @@ export default function HomeOwner() {
                   {(isSold || isArchived || isRejected) && (
                     <View style={styles.soldOverlay}>
                       <Text style={[styles.soldOverlayText, isRejected && { color: "#EF4444", borderColor: "#EF4444" }]}>
-                        {isArchived ? "DIARSIPKAN" : isRejected ? "DITOLAK" : (item.isForSale ? "TERJUAL" : "TERSEWA")}
+                        {(isArchived ? t("homeOwner.badge.Archived") : isRejected ? t("homeOwner.badge.Rejected") : item.isForSale ? t("homeOwner.badge.Sold") : t("homeOwner.rented")).toUpperCase()}
                       </Text>
                     </View>
                   )}
@@ -542,22 +579,22 @@ export default function HomeOwner() {
                   <Text style={[styles.propertyPrice, { color: theme.primary }]}>
                     {priceText}
                     <Text style={[styles.unit, { color: theme.textSecondary }]}>
-                      {item.isForSale ? "" : " /tahun"}
+                      {item.isForSale ? "" : ` ${t("property.perMonth")}`}
                     </Text>
                   </Text>
 
                   {/* Rejection Reason display if rejected */}
                   {isRejected && item.rejectionReason && (
                     <View style={{ backgroundColor: "#FEE2E2", padding: 10, borderRadius: 8, marginTop: 8, borderWidth: 0.5, borderColor: "#FCA5A5" }}>
-                      <Text style={{ fontSize: 11, color: "#EF4444", fontWeight: "700" }}>Alasan Penolakan:</Text>
+                      <Text style={{ fontSize: 11, color: "#EF4444", fontWeight: "700" }}>{t("homeOwner.rejectionReason")}</Text>
                       <Text style={{ fontSize: 11, color: "#991B1B", marginTop: 2 }}>{item.rejectionReason}</Text>
                     </View>
                   )}
 
                   {/* Card Stats Info */}
                   <View style={styles.metaRow}>
-                    <MetaItem icon="eye-outline" value={`${item.views || 0} Dilihat`} theme={theme} />
-                    <MetaItem icon="heart-outline" value={`${item.favorites || 0} Favorit`} theme={theme} />
+                    <MetaItem icon="eye-outline" value={t("homeOwner.viewsCount", { count: item.views || 0 })} theme={theme} />
+                    <MetaItem icon="heart-outline" value={t("homeOwner.favoritesCount", { count: item.favorites || 0 })} theme={theme} />
                     <View style={{ flex: 1 }} />
                     <Text style={[
                       styles.availabilityText, 
@@ -573,15 +610,15 @@ export default function HomeOwner() {
                           : theme.success 
                       }
                     ]}>
-                      ● {isSold 
-                        ? (item.isForSale ? "Terjual" : "Tersewa") 
-                        : isArchived 
-                        ? "Diarsipkan" 
-                        : isPending 
-                        ? "Menunggu Persetujuan" 
-                        : isRejected 
-                        ? "Ditolak" 
-                        : "Tersedia"}
+                      ● {isSold
+                        ? (item.isForSale ? t("homeOwner.badge.Sold") : t("homeOwner.rented"))
+                        : isArchived
+                        ? t("homeOwner.badge.Archived")
+                        : isPending
+                        ? t("homeOwner.awaitingApproval")
+                        : isRejected
+                        ? t("homeOwner.badge.Rejected")
+                        : t("propertyStatus.Approved")}
                     </Text>
                   </View>
 
@@ -595,7 +632,7 @@ export default function HomeOwner() {
                       onPress={() => router.push(`/product/${item.id}`)}
                     >
                       <Ionicons name="information-circle-outline" size={16} color={theme.textSecondary} />
-                      <Text style={[styles.actionBtnText, { color: theme.textSecondary }]}>Detail</Text>
+                      <Text style={[styles.actionBtnText, { color: theme.textSecondary }]}>{t("common.detail")}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -603,7 +640,7 @@ export default function HomeOwner() {
                       onPress={() => handleShareProperty(item)}
                     >
                       <Ionicons name="share-social-outline" size={16} color={theme.textSecondary} />
-                      <Text style={[styles.actionBtnText, { color: theme.textSecondary }]}>Bagikan</Text>
+                      <Text style={[styles.actionBtnText, { color: theme.textSecondary }]}>{t("common.share")}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -647,13 +684,13 @@ export default function HomeOwner() {
                           },
                         ]}
                       >
-                        {isSold || isArchived 
-                          ? "Aktifkan" 
-                          : isPending 
-                          ? "Menunggu" 
-                          : isRejected 
-                          ? "Lihat Alasan" 
-                          : "Ubah Status"}
+                        {isSold || isArchived
+                          ? t("homeOwner.activate")
+                          : isPending
+                          ? t("homeOwner.statusPending")
+                          : isRejected
+                          ? t("homeOwner.viewReason")
+                          : t("homeOwner.changeStatusShort")}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -682,7 +719,7 @@ export default function HomeOwner() {
         activeOpacity={0.9}
       >
         <Ionicons name="map" size={20} color="#FFF" />
-        <Text style={styles.fabText}>Peta Hunian</Text>
+        <Text style={styles.fabText}>{t("homeOwner.propertyMap")}</Text>
       </TouchableOpacity>
 
       {/* 🔔 Notifications Modal */}
@@ -695,11 +732,11 @@ export default function HomeOwner() {
         <View style={styles.modalOverlay}>
           <View style={[styles.notificationSheet, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
             <View style={styles.notificationHeader}>
-              <Text style={[styles.notificationTitle, { color: theme.text }]}>Notifikasi</Text>
+              <Text style={[styles.notificationTitle, { color: theme.text }]}>{t("homeOwner.notifications")}</Text>
               <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
                 {unreadCount > 0 && (
                   <TouchableOpacity onPress={handleMarkAllRead}>
-                    <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 13 }}>Tandai Dibaca</Text>
+                    <Text style={{ color: theme.primary, fontWeight: "700", fontSize: 13 }}>{t("homeOwner.markAllRead")}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity onPress={() => setShowNotificationsModal(false)}>
@@ -713,7 +750,7 @@ export default function HomeOwner() {
                 <View style={styles.emptyNotificationState}>
                   <Ionicons name="notifications-off-outline" size={48} color={theme.textSecondary + "50"} />
                   <Text style={{ color: theme.textSecondary, marginTop: 12, textAlign: "center", fontWeight: "600" }}>
-                    Belum ada notifikasi.
+                    {t("homeOwner.noNotifications")}
                   </Text>
                 </View>
               ) : (
@@ -725,23 +762,23 @@ export default function HomeOwner() {
                   if (n.type === "submitted") {
                     badgeColor = "#F59E0B";
                     badgeIcon = "time-outline";
-                    message = `🟡 Your property has been submitted successfully and is waiting for administrator approval.`;
+                    message = t("homeOwner.notif.submitted");
                   } else if (n.type === "approved") {
                     badgeColor = "#16A34A";
                     badgeIcon = "checkmark-circle-outline";
-                    message = `🟢 Your property has been approved and is now publicly available.`;
+                    message = t("homeOwner.notif.approved");
                   } else if (n.type === "rejected") {
                     badgeColor = "#EF4444";
                     badgeIcon = "close-circle-outline";
-                    message = `🔴 Your property submission has been rejected.\n\nReason:\n"${n.reason || "Property location does not match the submitted address."}"`;
+                    message = t("homeOwner.notif.rejected", { reason: n.reason || t("homeOwner.noReason") });
                   } else if (n.type === "archived") {
                     badgeColor = "#64748B";
                     badgeIcon = "archive-outline";
-                    message = `⚪ Your property has been archived.`;
+                    message = t("homeOwner.notif.archived");
                   } else if (n.type === "sold") {
                     badgeColor = "#3550DC";
                     badgeIcon = "cash-outline";
-                    message = `🔵 Your property has been marked as sold.`;
+                    message = t("homeOwner.notif.sold");
                   }
 
                   return (
@@ -751,7 +788,7 @@ export default function HomeOwner() {
                         styles.notificationCard, 
                         { 
                           borderColor: theme.border, 
-                          backgroundColor: n.read ? theme.surface : theme.primary + "10" 
+                          backgroundColor: n.isRead ? theme.surface : theme.primary + "10" 
                         }
                       ]}
                     >
@@ -767,7 +804,7 @@ export default function HomeOwner() {
                             {message}
                           </Text>
                           <Text style={{ color: theme.textSecondary + "80", fontSize: 10, marginTop: 8 }}>
-                            {new Date(n.timestamp).toLocaleString("id-ID")}
+                            {n.createdAt ? new Date(n.createdAt).toLocaleString("id-ID") : ""}
                           </Text>
                         </View>
                       </View>
@@ -841,6 +878,17 @@ function MetaItem({ icon, value, theme }: MetaItemProps) {
 /* ---------- Styles ---------- */
 
 const styles = StyleSheet.create({
+  statusSummary: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+  },
+  statusSummaryItem: { flex: 1, alignItems: "center" },
+  statusSummaryValue: { fontSize: 17, fontWeight: "900" },
+  statusSummaryLabel: { fontSize: 10, fontWeight: "600", marginTop: 1 },
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: "center", alignItems: "center" },
 

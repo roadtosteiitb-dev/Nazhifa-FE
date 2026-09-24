@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -39,32 +40,34 @@ type Row =
   | { kind: "day"; key: string; label: string }
   | { kind: "msg"; key: string; msg: ChatMessage; isMe: boolean; first: boolean; last: boolean };
 
+// Translation keys — resolved with t() at render time
 const QUICK_REPLIES: Record<"buyer" | "owner", string[]> = {
   buyer: [
-    "Halo, apakah properti ini masih tersedia?",
-    "Apakah harganya masih bisa nego?",
-    "Bisakah saya survei lokasi minggu ini?",
-    "Bagaimana status sertifikatnya?",
-    "Apakah bisa KPR?",
+    "chat.quick.buyer1",
+    "chat.quick.buyer2",
+    "chat.quick.buyer3",
+    "chat.quick.buyer4",
+    "chat.quick.buyer5",
   ],
   owner: [
-    "Halo, properti masih tersedia 😊",
-    "Kapan Anda bisa survei lokasi?",
-    "Harga masih bisa dinegosiasikan.",
-    "Sertifikat SHM, siap balik nama.",
-    "Terima kasih atas minatnya!",
+    "chat.quick.owner1",
+    "chat.quick.owner2",
+    "chat.quick.owner3",
+    "chat.quick.owner4",
+    "chat.quick.owner5",
   ],
 };
 
 const STATUS_LABEL: Record<string, { text: string; color: string; bg: string }> = {
-  Approved: { text: "Tersedia", color: "#16A34A", bg: "#DCFCE7" },
-  Sold: { text: "Terjual", color: "#64748B", bg: "#E2E8F0" },
-  Pending: { text: "Menunggu verifikasi", color: "#CA8A04", bg: "#FEF9C3" },
-  Rejected: { text: "Ditolak", color: "#DC2626", bg: "#FEE2E2" },
-  Archived: { text: "Diarsipkan", color: "#64748B", bg: "#E2E8F0" },
+  Approved: { text: "propertyStatus.Approved", color: "#16A34A", bg: "#DCFCE7" },
+  Sold: { text: "propertyStatus.Sold", color: "#64748B", bg: "#E2E8F0" },
+  Pending: { text: "propertyStatus.Pending", color: "#CA8A04", bg: "#FEF9C3" },
+  Rejected: { text: "propertyStatus.Rejected", color: "#DC2626", bg: "#FEE2E2" },
+  Archived: { text: "propertyStatus.Archived", color: "#64748B", bg: "#E2E8F0" },
 };
 
 export default function ChatRoom() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { isDark } = useTheme();
   const { lands } = useLands();
@@ -108,7 +111,7 @@ export default function ChatRoom() {
   const land = lands.find((l) => String(l.id) === propertyId);
   const property = {
     id: propertyId,
-    name: land?.name ?? conversation?.propertyTitle ?? "Properti",
+    name: land?.name ?? conversation?.propertyTitle ?? t("chat.property"),
     image: land?.image ?? conversation?.propertyImage ?? PLACEHOLDER,
     price: land?.price ?? conversation?.propertyPrice ?? 0,
     location: land?.location ?? conversation?.propertyLocation ?? "",
@@ -120,8 +123,8 @@ export default function ChatRoom() {
     conversation ? (conversation.ownerId === user?.id ? "owner" : "buyer") : user?.userType === "owner" ? "owner" : "buyer";
   const partnerName =
     myRole === "buyer"
-      ? conversation?.ownerName || (params.ownerName ? String(params.ownerName) : "") || "Pemilik Properti"
-      : conversation?.buyerName || "Calon Pembeli";
+      ? conversation?.ownerName || (params.ownerName ? String(params.ownerName) : "") || t("chat.propertyOwner")
+      : conversation?.buyerName || t("chat.prospectiveBuyer");
 
   // Unknown status (property not loaded) should not block the chat
   const canChat = !property.status || property.status === "Approved" || property.status === "Sold";
@@ -214,7 +217,7 @@ export default function ChatRoom() {
         conversationId: chatId,
         senderId: user!.id,
         senderRole: myRole,
-        senderName: user!.fullName || "Pengguna",
+        senderName: user!.fullName || "",
         text: msg.text,
       });
       setServerMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
@@ -267,14 +270,14 @@ export default function ChatRoom() {
   const onLongPress = (msg: ChatMessage) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     if (msg.localStatus === "failed") {
-      Alert.alert("Pesan gagal terkirim", msg.text, [
-        { text: "Hapus", style: "destructive", onPress: () => setPending((p) => p.filter((x) => x.id !== msg.id)) },
-        { text: "Salin", onPress: () => Clipboard.setStringAsync(msg.text).then(() => showToast("Pesan disalin")) },
-        { text: "Kirim ulang", onPress: () => retry(msg) },
+      Alert.alert(t("chat.sendFailedTitle"), msg.text, [
+        { text: t("common.delete"), style: "destructive", onPress: () => setPending((p) => p.filter((x) => x.id !== msg.id)) },
+        { text: t("chat.copy"), onPress: () => Clipboard.setStringAsync(msg.text).then(() => showToast(t("chat.copied"))) },
+        { text: t("chat.resend"), onPress: () => retry(msg) },
       ]);
       return;
     }
-    Clipboard.setStringAsync(msg.text).then(() => showToast("Pesan disalin"));
+    Clipboard.setStringAsync(msg.text).then(() => showToast(t("chat.copied")));
   };
 
   /* ── Scroll handling (inverted: offset 0 = newest) ── */
@@ -337,13 +340,13 @@ export default function ChatRoom() {
               ))}
           </View>
         </TouchableOpacity>
-        {failed && <Text style={styles.failedText}>Gagal terkirim · ketuk untuk kirim ulang</Text>}
+        {failed && <Text style={styles.failedText}>{t("chat.sendFailedTap")}</Text>}
       </View>
     );
   };
 
   const statusInfo = property.status ? STATUS_LABEL[property.status] : undefined;
-  const quickReplies = QUICK_REPLIES[myRole];
+  const quickReplies = QUICK_REPLIES[myRole].map((key) => t(key));
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.surface }]} edges={["top", "left", "right", "bottom"]}>
@@ -359,7 +362,7 @@ export default function ChatRoom() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.headerTitle, { color: c.text }]} numberOfLines={1}>{partnerName}</Text>
             <Text style={styles.headerSubTitle} numberOfLines={1}>
-              {myRole === "buyer" ? "Pemilik properti" : "Calon pembeli"}
+              {myRole === "buyer" ? t("chat.propertyOwner") : t("chat.prospectiveBuyer")}
             </Text>
           </View>
         </View>
@@ -376,16 +379,16 @@ export default function ChatRoom() {
             <Text style={[styles.propertyTitle, { color: c.text }]} numberOfLines={1}>{property.name}</Text>
             <Text style={styles.propertyPrice} numberOfLines={1}>
               Rp {(property.price || 0).toLocaleString("id-ID")}
-              {!property.isForSale && <Text style={styles.propertyPriceUnit}> /bulan</Text>}
+              {!property.isForSale && <Text style={styles.propertyPriceUnit}> {t("property.perMonth")}</Text>}
             </Text>
             {statusInfo && (
               <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>{statusInfo.text}</Text>
+                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>{t(statusInfo.text)}</Text>
               </View>
             )}
           </View>
           <View style={styles.viewPropertyBtn}>
-            <Text style={styles.viewPropertyBtnText}>Detail</Text>
+            <Text style={styles.viewPropertyBtnText}>{t("common.detail")}</Text>
             <Ionicons name="chevron-forward" size={14} color={PRIMARY} />
           </View>
         </TouchableOpacity>
@@ -395,14 +398,14 @@ export default function ChatRoom() {
           {isLoading ? (
             <View style={styles.centerBox}>
               <ActivityIndicator color={PRIMARY} />
-              <Text style={styles.centerText}>Memuat pesan…</Text>
+              <Text style={styles.centerText}>{t("chat.loadingMessages")}</Text>
             </View>
           ) : loadError && !hasMessages ? (
             <View style={styles.centerBox}>
               <Ionicons name="cloud-offline-outline" size={36} color="#94A3B8" />
-              <Text style={styles.centerText}>Pesan tidak dapat dimuat.</Text>
+              <Text style={styles.centerText}>{t("chat.loadMessagesError")}</Text>
               <TouchableOpacity style={styles.retryBtn} onPress={() => { setIsLoading(true); loadMessages(); }}>
-                <Text style={styles.retryText}>Coba lagi</Text>
+                <Text style={styles.retryText}>{t("common.retry")}</Text>
               </TouchableOpacity>
             </View>
           ) : !hasMessages ? (
@@ -410,11 +413,11 @@ export default function ChatRoom() {
               <View style={styles.welcomeIcon}>
                 <Ionicons name="chatbubbles" size={30} color={PRIMARY} />
               </View>
-              <Text style={[styles.welcomeTitle, { color: c.text }]}>Mulai percakapan dengan {partnerName}</Text>
+              <Text style={[styles.welcomeTitle, { color: c.text }]}>{t("chat.startWith", { name: partnerName })}</Text>
               <Text style={styles.welcomeText}>
                 {myRole === "buyer"
-                  ? "Tanyakan ketersediaan, harga, atau jadwal survei. Pilih salah satu pertanyaan di bawah untuk memulai:"
-                  : "Balas pertanyaan calon pembeli. Pilih salah satu balasan cepat di bawah:"}
+                  ? t("chat.welcomeBuyer")
+                  : t("chat.welcomeOwner")}
               </Text>
               {canChat &&
                 quickReplies.map((q) => (
@@ -466,7 +469,7 @@ export default function ChatRoom() {
           <View style={[styles.restrictionBanner, { borderTopColor: c.border, backgroundColor: c.surface }]}>
             <Ionicons name="lock-closed-outline" size={18} color="#DC2626" />
             <Text style={styles.restrictionText}>
-              Properti ini {statusInfo?.text.toLowerCase() ?? "tidak tersedia"}, jadi percakapan dinonaktifkan sementara.
+              {t("chat.disabled", { status: (statusInfo ? t(statusInfo.text) : t("chat.unavailable")).toLowerCase() })}
             </Text>
           </View>
         ) : (
@@ -493,7 +496,7 @@ export default function ChatRoom() {
               <View style={[styles.inputWrapper, { backgroundColor: isDark ? "#0F172A" : "#F1F5F9", borderColor: c.border }]}>
                 <TextInput
                   ref={inputRef}
-                  placeholder="Tulis pesan…"
+                  placeholder={t("chat.inputPlaceholder")}
                   value={input}
                   onChangeText={setInput}
                   style={[styles.input, { color: c.text }]}

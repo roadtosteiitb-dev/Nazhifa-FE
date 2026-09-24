@@ -34,16 +34,17 @@ const GRAY_BG = '#F1F5F9';
 const TEXT_DARK = '#0F172A';
 const TEXT_SECONDARY = '#64748B';
 
+// Stored values (sent to the API) — displayed through complaint.categories.* translations
 const CATEGORIES = ['Fraud', 'Misinformation', 'Legal Issue', 'Spam', 'Other'];
 
 const getStatusInfo = (status: ComplaintStatus) => {
   switch (status) {
     case 'resolved':
-      return { bg: '#DCFCE7', text: SUCCESS, label: 'Resolved', icon: 'checkmark-circle' as const };
+      return { bg: '#DCFCE7', text: SUCCESS, label: 'complaint.statuses.resolved', icon: 'checkmark-circle' as const };
     case 'in_progress':
-      return { bg: '#DBEAFE', text: PRIMARY, label: 'In Progress', icon: 'time' as const };
+      return { bg: '#DBEAFE', text: PRIMARY, label: 'complaint.statuses.in_progress', icon: 'time' as const };
     default:
-      return { bg: '#FEF3C7', text: '#D97706', label: 'Open', icon: 'time' as const };
+      return { bg: '#FEF3C7', text: '#D97706', label: 'complaint.statuses.open', icon: 'time' as const };
   }
 };
 
@@ -135,14 +136,14 @@ export default function BuyerComplaints() {
         <View style={styles.cardHeader}>
           <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
             <Ionicons name={statusInfo.icon} size={11} color={statusInfo.text} />
-            <Text style={[styles.statusText, { color: statusInfo.text }]}>{statusInfo.label}</Text>
+            <Text style={[styles.statusText, { color: statusInfo.text }]}>{t(statusInfo.label)}</Text>
           </View>
           <Text style={styles.cardDate}>{item.date || '-'}</Text>
         </View>
 
         {item.image && <Image source={{ uri: item.image }} style={styles.cardImage} />}
 
-        <Text style={styles.cardCategory}>{item.category}</Text>
+        <Text style={styles.cardCategory}>{t(`complaint.categories.${item.category.replace(/\s/g, "")}`, { defaultValue: item.category })}</Text>
         <Text style={styles.cardDesc} numberOfLines={3}>
           {item.message}
         </Text>
@@ -165,7 +166,7 @@ export default function BuyerComplaints() {
           <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.headerTitle}>My Complaints</Text>
+          <Text style={styles.headerTitle}>{t("complaint.myComplaints")}</Text>
           <Text style={styles.headerSubtitle}>
             {complaints.length} {complaints.length === 1 ? 'complaint' : 'complaints'} submitted
           </Text>
@@ -184,7 +185,7 @@ export default function BuyerComplaints() {
           <Text style={styles.emptySub}>{t('complaint.emptySub')}</Text>
           <TouchableOpacity style={styles.emptyBtn} onPress={openCreateModal} activeOpacity={0.85}>
             <Ionicons name="add-circle-outline" size={18} color={PRIMARY} />
-            <Text style={styles.emptyBtnText}>Submit a Complaint</Text>
+            <Text style={styles.emptyBtnText}>{t("complaint.submitNew")}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -221,7 +222,7 @@ export default function BuyerComplaints() {
               </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.fieldLabel}>Category</Text>
+                <Text style={styles.fieldLabel}>{t("complaint.category")}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {CATEGORIES.map((cat) => (
                     <TouchableOpacity
@@ -230,13 +231,13 @@ export default function BuyerComplaints() {
                       onPress={() => setFormData({ ...formData, category: cat })}
                     >
                       <Text style={[styles.categoryChipText, formData.category === cat && styles.categoryChipTextActive]}>
-                        {cat}
+                        {t(`complaint.categories.${cat.replace(/\s/g, "")}`)}
                       </Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
 
-                <Text style={styles.fieldLabel}>Evidence Photo (Optional)</Text>
+                <Text style={styles.fieldLabel}>{t("complaint.upload")}</Text>
                 <TouchableOpacity style={styles.imagePicker} onPress={pickImage} activeOpacity={0.7}>
                   {formData.image ? (
                     <View style={styles.imagePreviewWrap}>
@@ -248,16 +249,16 @@ export default function BuyerComplaints() {
                   ) : (
                     <View style={styles.imagePlaceholder}>
                       <Ionicons name="cloud-upload-outline" size={36} color={PRIMARY} />
-                      <Text style={styles.imagePlaceholderText}>Tap to upload photo</Text>
-                      <Text style={styles.imagePlaceholderSub}>JPG, PNG up to 5MB</Text>
+                      <Text style={styles.imagePlaceholderText}>{t("complaint.tapToUpload")}</Text>
+                      <Text style={styles.imagePlaceholderSub}>{t("complaint.uploadHint")}</Text>
                     </View>
                   )}
                 </TouchableOpacity>
 
-                <Text style={styles.fieldLabel}>Complaint Description</Text>
+                <Text style={styles.fieldLabel}>{t("complaint.description")}</Text>
                 <TextInput
                   style={styles.textArea}
-                  placeholder="Describe your complaint in detail..."
+                  placeholder={t("complaint.placeholder")}
                   placeholderTextColor="#94A3B8"
                   multiline
                   numberOfLines={5}

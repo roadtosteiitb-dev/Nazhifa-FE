@@ -1,9 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useRef } from "react";
 import { Animated, Image, StyleSheet, Text, View } from "react-native";
 
 export default function LandingPage() {
+  const { t } = useTranslation();
   const router = useRouter();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -61,7 +63,7 @@ export default function LandingPage() {
         <Text style={styles.title}>titikhuni</Text>
 
         <Text style={styles.subtitle}>
-          Temukan & Sewakan Properti dengan Mudah
+          {t("landing.tagline")}
         </Text>
       </Animated.View>
     </View>

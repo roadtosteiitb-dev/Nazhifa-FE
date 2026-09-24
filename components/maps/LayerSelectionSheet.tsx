@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useState } from "react";
 import {
   View,
@@ -41,6 +42,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
   onResetAllLayers,
   theme,
 }) => {
+  const { t } = useTranslation();
   // Collapsible section state
   const [propertyGroupExpanded, setPropertyGroupExpanded] = useState(true);
   const [disasterGroupExpanded, setDisasterGroupExpanded] = useState(true);
@@ -66,12 +68,12 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
           <View style={styles.header}>
             <View style={styles.headerTitleRow}>
               <Ionicons name="layers-outline" size={20} color="#2E7D32" />
-              <Text style={styles.title}>Layer Panel</Text>
+              <Text style={styles.title}>{t("layers.panelTitle")}</Text>
             </View>
             <View style={styles.headerRightRow}>
               {(activePropertyLayers.length > 0 || activeDisasterLayers.length > 0) && (
                 <TouchableOpacity onPress={onResetAllLayers} style={{ marginRight: 12 }}>
-                  <Text style={styles.resetText}>Reset</Text>
+                  <Text style={styles.resetText}>{t("common.reset")}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -90,7 +92,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
               >
                 <View style={styles.accordionTitleRow}>
                   <Ionicons name="business-outline" size={18} color="#2E7D32" />
-                  <Text style={styles.groupTitle}>Property Layers</Text>
+                  <Text style={styles.groupTitle}>{t("layers.propertyGroup")}</Text>
                   {activePropertyLayers.length > 0 && (
                     <View style={styles.countBadge}>
                       <Text style={styles.countBadgeText}>{activePropertyLayers.length}</Text>
@@ -132,7 +134,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
                             { color: isActive ? "#2E7D32" : "#111827", fontWeight: isActive ? "700" : "500" },
                           ]}
                         >
-                          {layer.name}
+                          {t(`layers.${layer.id}`)}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -150,7 +152,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
               >
                 <View style={styles.accordionTitleRow}>
                   <Ionicons name="warning-outline" size={18} color="#DC2626" />
-                  <Text style={styles.groupTitle}>Disaster Layers</Text>
+                  <Text style={styles.groupTitle}>{t("layers.disasterGroup")}</Text>
                   {activeDisasterLayers.length > 0 && (
                     <View style={[styles.countBadge, { backgroundColor: "rgba(220, 38, 38, 0.12)" }]}>
                       <Text style={[styles.countBadgeText, { color: "#DC2626" }]}>
@@ -194,7 +196,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
                             { color: isActive ? "#2E7D32" : "#111827", fontWeight: isActive ? "700" : "500" },
                           ]}
                         >
-                          {layer.name}
+                          {t(`layers.${layer.id}`)}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -212,7 +214,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
               >
                 <View style={styles.accordionTitleRow}>
                   <Ionicons name="map-outline" size={18} color="#2E7D32" />
-                  <Text style={styles.groupTitle}>Basemap</Text>
+                  <Text style={styles.groupTitle}>{t("layers.basemapGroup")}</Text>
                 </View>
                 <Ionicons
                   name={basemapGroupExpanded ? "chevron-up" : "chevron-down"}
@@ -249,7 +251,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
                             { color: selected ? "#2E7D32" : "#111827", fontWeight: selected ? "700" : "500" },
                           ]}
                         >
-                          {opt.name}
+                          {t(`layers.${opt.id}`)}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -261,7 +263,7 @@ export const LayerSelectionSheet: React.FC<LayerSelectionSheetProps> = ({
 
           {/* PRIMARY BUTTON */}
           <TouchableOpacity style={styles.applyBtn} onPress={onClose} activeOpacity={0.9}>
-            <Text style={styles.applyBtnText}>Apply Layers</Text>
+            <Text style={styles.applyBtnText}>{t("layers.apply")}</Text>
           </TouchableOpacity>
         </View>
       </View>
